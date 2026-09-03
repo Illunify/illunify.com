@@ -80,11 +80,11 @@ button {
 	backdrop-filter: blur(9px) brightness(1.1);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset -3px -4px 15px 6px hsl(212deg 37% 67% / 0.25),
-		inset -2px -2px 5px hsl(212deg 37% 67% / 0.1875),
-		inset -1px -1px 1px hsl(212deg 37% 67% / 0.5),
-		inset 8px 10px 15px hsl(212deg 37% 67% / 0.25),
-		inset 1px 1px 2px hsl(212deg 37% 67% / 0.375);
+		inset 0 0 15px 6px hsl(212deg 37% 67% / 0.25),
+		inset 0 0 5px hsl(212deg 37% 67% / 0.1875),
+		inset 0 0 1px hsl(212deg 37% 67% / 0.5),
+		inset 0 0 15px hsl(212deg 37% 67% / 0.25),
+		inset 0 0 2px hsl(212deg 37% 67% / 0.375);
 	cursor: pointer;
 }
 p,
@@ -123,11 +123,11 @@ a {
 	backdrop-filter: blur(9px) brightness(1.1);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset -3px -4px 15px 6px hsl(205deg 70% 90% / 0.25),
-		inset -2px -2px 5px hsl(205deg 70% 90% / 0.1875),
-		inset -1px -1px 1px hsl(205deg 70% 90% / 0.5),
-		inset 8px 10px 15px hsl(205deg 30% 10% / 0.25),
-		inset 1px 1px 2px hsl(205deg 70% 90% / 0.375);
+		inset 0 0 15px 6px hsl(0 0% 86.3% / 0.25),
+		inset 0 0 5px hsl(0 0% 86.3% / 0.1875),
+		inset 0 0 1px hsl(0 0% 86.3% / 0.5),
+		inset 0 0 15px hsl(0 0% 86.3% / 0.25),
+		inset 0 0 2px hsl(0 0% 86.3% / 0.375);
 }
 mark {
 	all: unset;
@@ -138,6 +138,9 @@ mark {
 		var(--DISPLAY) / 0.75 Instrument-Serif,
 		Arial,
 		sans-serif;
+}
+.w {
+	display: inline-block;
 }
 mark::before {
 	content: attr(outline);
@@ -197,11 +200,11 @@ h3 {
 	backdrop-filter: blur(9px) brightness(1.1);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset -3px -4px 15px 6px hsl(0 0% 77.3% / 0.25),
-		inset -2px -2px 5px hsl(0 0% 77.3% / 0.1875),
-		inset -1px -1px 1px hsl(0 0% 77.3% / 0.5),
-		inset 8px 10px 15px hsl(0 0% 77.3% / 0.25),
-		inset 1px 1px 2px hsl(0 0% 77.3% / 0.375);
+		inset 0 0 15px 6px hsl(0 0% 77.3% / 0.25),
+		inset 0 0 5px hsl(0 0% 77.3% / 0.1875),
+		inset 0 0 1px hsl(0 0% 77.3% / 0.5),
+		inset 0 0 15px hsl(0 0% 77.3% / 0.25),
+		inset 0 0 2px hsl(0 0% 77.3% / 0.375);
 }
 #OFFERS {
 	flex-direction: column;
@@ -238,7 +241,7 @@ h3 {
 #PROFILE article {
 	flex-direction: column;
 	gap: var(--PX10);
-	width: 30%;
+	width: 35%;
 }
 #PROFILE article div {
 	gap: var(--PX10);
@@ -300,47 +303,6 @@ footer {
 	to {
 		opacity: 1;
 	}
-}
-#preloader > * {
-	opacity: 0;
-	animation: fadeIn var(--TRANSITION) var(--BEZIER) forwards;
-}
-#preloader > *:nth-child(1) {
-	animation-delay: var(--TRANSITION);
-}
-#preloader > *:nth-child(2) {
-	animation-delay: var(--TRANSITION);
-}
-#preloader {
-	z-index: 5;
-	width: 100vw;
-	height: 100svh;
-	position: fixed;
-	background: var(--BACKGROUND);
-	transition:
-		transform 0.65s 0.85s var(--BEZIER),
-		opacity var(--TRANSITION) 1.25s var(--BEZIER);
-}
-body.loaded #preloader {
-	opacity: 0;
-	transform: translateY(-100svh);
-}
-.loading-bar-container {
-	left: 0;
-	bottom: 0;
-	width: 100vw;
-	height: 5svh;
-	position: absolute;
-}
-.loading-bar {
-	width: 0%;
-	height: 100%;
-	transition: width 0.75s var(--BEZIER);
-}
-.loading-percentage {
-	left: 7.5svh;
-	bottom: 7.5svh;
-	position: absolute;
 }
 ::-webkit-scrollbar {
 	display: none;
@@ -444,5 +406,15 @@ body.loaded #preloader {
 	main {
 		padding: var(--PX5);
 		gap: 20svh;
+	}
+}
+@media (max-width: 480px) {
+	#PROFILE article {
+		width: 86%;
+		text-align: center;
+		align-items: center;
+	}
+	#HOME section:nth-of-type(1) article {
+		width: 86%;
 	}
 }
