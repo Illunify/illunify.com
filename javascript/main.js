@@ -25,17 +25,6 @@ ScrollSmoother.get() || ScrollSmoother.create({ smooth: 1.5, smoothTouch: .15, n
       bail()
       return
     }
-    var motionMq = matchMedia('(prefers-reduced-motion: reduce)')
-    var reduced = motionMq.matches
-    var rndState = (performance.now() * 65536) >>> 0 || 1
-    function rnd() {
-      rndState ^= rndState << 13
-      rndState >>>= 0
-      rndState ^= rndState >>> 17
-      rndState ^= rndState << 5
-      rndState >>>= 0
-      return rndState / 4294967296
-    }
     function clamp(v, lo, hi) {
       return Math.min(Math.max(v, lo), hi)
     }
@@ -62,7 +51,6 @@ uniform float uAmp;
 uniform float uEdge;
 uniform float uDT;
 uniform vec4 uSA[6];
-uniform vec3 uDrop;
 void main(){
 vec2 uv=vUv;
 vec2 st=texture(uState,uv).rg;
@@ -105,10 +93,6 @@ h+=uAmp*ag.w*g*(-0.25+1.35*dip)*spd*uDT;
 float pr=ag.z*ag.w;
 if(pr>0.0) h=mix(h,-uAmp*0.025*g,clamp(g*pr*uDT*25.0,0.0,0.5));
 }
-if(uDrop.z!=0.0){
-vec2 dp=P-uDrop.xy;
-h+=uDrop.z*exp(-dot(dp,dp)*ir2*(1.0/0.25));
-}
 outState=vec4(clamp(h,-1.5,1.5),clamp(v,-1.5,1.5),0.0,1.0);
 }`
     var FRAG_RENDER = `#version 300 es
@@ -118,32 +102,21 @@ in vec2 vUv;
 out vec4 fragColor;
 uniform sampler2D uState;
 uniform vec2 uAspect;
-uniform vec3 uFloor;
 uniform float uTime;
 uniform float uGradScale;
 uniform float uEta;
-uniform float uDepth;
-uniform float uIor;
 uniform float uRough;
 uniform float uWide;
 uniform float uSheen;
 uniform float uGloss;
-uniform float uSwell;
 uniform vec3 uSun;
 const float PI=3.14159265359;
 const float C_BOX=0.7421;
-const vec3 C_WATER=vec3(0.2445,0.381,0.5775);
+const vec3 C_WATER=vec3(0.4205,0.5136,0.6251);
 float hash21(vec2 p){
 vec3 q=fract(p.xyx*vec3(0.1031,0.1030,0.0973));
 q+=dot(q,q.yzx+33.33);
 return fract((q.x+q.y)*q.z);
-}
-void addWave(vec2 p,float t,float ang,float L,float amp,inout float Ht,inout vec2 G){
-vec2 d=vec2(cos(ang),sin(ang));
-float k=6.28318530718/L;
-float ph=k*dot(d,p)-sqrt(0.35*k)*t;
-Ht+=amp*sin(ph);
-G+=amp*k*cos(ph)*d;
 }
 float skyCol(vec3 r){
 float c=mix(C_BOX*0.85,1.05,pow(clamp(r.z*0.5+0.5,0.0,1.0),1.5));
@@ -161,28 +134,19 @@ return a2/(PI*dd*dd)*G*F/(4.0*NoV*max(NoL,1e-4))*NoL;
 }
 void main(){
 vec2 uv=vUv;
-vec2 p=uv*uAspect;
 float h=texture(uState,uv).r;
 float hL=textureOffset(uState,uv,ivec2(-2,0)).r;
 float hR=textureOffset(uState,uv,ivec2(2,0)).r;
 float hD=textureOffset(uState,uv,ivec2(0,-2)).r;
 float hU=textureOffset(uState,uv,ivec2(0,2)).r;
 vec2 grad=vec2(hR-hL,hU-hD)*uGradScale;
-float sHt=0.0;
-vec2 sG=vec2(0.0);
-addWave(p,uTime,0.35,2.5,1.0,sHt,sG);
-addWave(p,uTime,-0.25,1.75,0.79,sHt,sG);
-addWave(p,uTime,1.45,1.15,0.28,sHt,sG);
-grad+=sG*uSwell;
-float eta=h*uEta+sHt*uSwell;
+float eta=h*uEta;
 vec3 N=normalize(vec3(-grad,1.0));
 vec3 V=normalize(vec3(-(uv-0.5)*uAspect*0.25,1.0));
 vec3 I=-V;
 float NoV=clamp(dot(N,V),1e-4,1.0);
-const float F0=0.0205;
+const float F0=0.045;
 float Fr=F0+(1.0-F0)*pow(1.0-NoV,5.0);
-vec3 T=refract(I,N,uIor);
-float invTz=1.0/-min(T.z,-0.15);
 float wave=clamp(abs(eta)*3.0+length(grad)*0.15,0.0,1.0);
 vec3 col=mix(mix(vec3(C_BOX),C_WATER,wave),vec3(skyCol(reflect(I,N))),Fr);
 float aaR=clamp(length(fwidth(grad))*0.45,0.0,0.35);
@@ -232,23 +196,18 @@ fragColor=vec4(col,1.0);
     var AMP = 2.5,
       STEEP = 0.25,
       WARP = 400,
-      DEPTH = 0.25,
-      IOR_ETA = 0.75,
-      SWELL = 0.005,
-      SWELL_CALM = 0.0025,
-      EDGE_LIM = 0.35,
-      DROP = 0.75
+      DEPTH = 0.5,
+      IOR_ETA = 0.65
     var DECAY = 0.985,
       DAMP_H = 0.9985,
       WHEEL_FADE = 10,
       SLEEP_AFTER = 2.5,
-      SHAPE_STEP = 1 / 60
+      SHAPE_STEP = 0.02
     var NU = 0.25,
       RADIUS = 0.05,
       K_WAVE = 0.35,
       RATE = 300,
       TELEPORT = 30,
-      STROKE = 1.5,
       SIM_H = 360,
       CH = 70
     var CPU_REL = (CH / SIM_H) * (CH / SIM_H)
@@ -274,8 +233,7 @@ fragColor=vec4(col,1.0);
           'uAmp',
           'uEdge',
           'uDT',
-          'uSA',
-          'uDrop'
+          'uSA'
         ],
         S
       )
@@ -284,18 +242,13 @@ fragColor=vec4(col,1.0);
         [
           'uState',
           'uAspect',
-          'uFloor',
           'uTime',
           'uGradScale',
           'uEta',
-          'uDepth',
-          'uIor',
           'uRough',
           'uWide',
           'uSheen',
           'uGloss',
-          'uSwell',
-          'uSigma',
           'uSun'
         ],
         R
@@ -316,19 +269,14 @@ fragColor=vec4(col,1.0);
         uAmp: AMP,
         uEdge: 0.055
       })
-      gl.uniform3f(S.uDrop, 0, 0, 0)
       setConst(pRen, R, {
         uGradScale: STEEP * SIM_H * 0.25,
-        uEta: 2.0,
-        uDepth: DEPTH,
-        uIor: IOR_ETA,
-        uRough: 0.15,
-        uWide: 0.5,
+        uEta: 2.5,
+        uRough: 0.05,
+        uWide: 0.35,
         uSheen: 1.85,
         uGloss: 1.65,
-        uSwell: reduced ? SWELL_CALM : SWELL
       })
-      gl.uniform3f(R.uSigma, 9.05, 5.5, 2.1)
       gl.uniform3f(R.uSun, -0.3495, 0.425, 0.835)
       A = null
       B = null
@@ -435,7 +383,6 @@ fragColor=vec4(col,1.0);
       gl.uniform2f(S.uAspect, aspect, 1)
       gl.useProgram(pRen)
       gl.uniform2f(R.uAspect, aspect, 1)
-      gl.uniform3f(R.uFloor, aspect * 0.5, 0.5, 1 / Math.max(aspect, 1))
       measureShapes()
       updateShapes(true)
     }
@@ -486,6 +433,14 @@ fragColor=vec4(col,1.0);
         ptrY = y
       }
       if (!a) return
+      if (e.target?.closest?.('[data-water]')) {
+        a.x = a.px = x
+        a.y = a.py = y
+        a.fresh = true
+        a.moved = false
+        a.down = 0
+        return
+      }
       a.x = x
       a.y = y
       if (a.fresh) {
@@ -716,18 +671,14 @@ fragColor=vec4(col,1.0);
     		uy = Math.sin(a)
     	s.bx[w] = g.acx[c] + rr * ux
     	s.by[w] = g.acy[c] + rr * uy
-    	s.nx[w] = ux
-    	s.ny[w] = uy
     }
     function edgePoint(s, g, w, c, t) {
     	s.bx[w] = g.sbx[c] + g.sdx[c] * t
     	s.by[w] = g.sby[c] + g.sdy[c] * t
-    	s.nx[w] = g.sdy[c]
-    	s.ny[w] = -g.sdx[c]
     }
-    function outlineGeom(s, pad) {
-    	var ew = Math.max(0, s.w - pad * 2),
-    		eh = Math.max(0, s.h - pad * 2),
+    function outlineGeom(s) {
+    	var ew = s.w,
+    		eh = s.h,
     		cap = Math.min(ew, eh) * 0.5,
     		q = Math.PI * 0.5,
     		r = [0, 0, 0, 0],
@@ -750,21 +701,19 @@ fragColor=vec4(col,1.0);
     		r: r,
     		seg: seg,
     		per: per > 0 ? per : 1,
-    		acx: [pad + ew - r[1], pad + ew - r[2], pad + r[3], pad + r[0]],
-    		acy: [pad + r[1], pad + eh - r[2], pad + eh - r[3], pad + r[0]],
-    		sbx: [pad + r[0], pad + ew, pad + ew - r[2], pad],
-    		sby: [pad, pad + r[1], pad + eh, pad + eh - r[3]],
+    		acx: [ew - r[1], ew - r[2], r[3], r[0]],
+    		acy: [r[1], eh - r[2], eh - r[3], r[0]],
+    		sbx: [r[0], ew, ew - r[2], 0],
+    		sby: [0, r[1], eh, eh - r[3]],
     		sdx: [1, 0, -1, 0],
     		sdy: [0, 1, 0, -1]
     	}
     }
-    function buildOutline(s, pad) {
+    function buildOutline(s) {
     	var n = s.n
     	s.bx = new Float32Array(n)
     	s.by = new Float32Array(n)
-    	s.nx = new Float32Array(n)
-    	s.ny = new Float32Array(n)
-    	var g = outlineGeom(s, pad),
+    	var g = outlineGeom(s),
     		cnt = allocPoints(g.seg, g.per, n),
     		w = 0
     	for (var i = 0; i < 8; i++) {
@@ -780,8 +729,6 @@ fragColor=vec4(col,1.0);
     	while (w < n) {
     		s.bx[w] = s.bx[w - 1]
     		s.by[w] = s.by[w - 1]
-    		s.nx[w] = s.nx[w - 1]
-    		s.ny[w] = s.ny[w - 1]
     		w++
     	}
     }
@@ -808,31 +755,28 @@ fragColor=vec4(col,1.0);
         if (!r.width || !r.height) continue
         var cs = getComputedStyle(el)
         var n = Number.parseInt(el.dataset.n, 10) || 60
-        var pad = Number.parseFloat(cs.getPropertyValue('--pad'))
-        if (!(pad >= 0)) pad = 10
-        var ring = el.querySelector('.ring')
-        var fill = el.querySelector('.fill')
+        var pad = Math.min(
+          Number.parseFloat(cs.paddingTop) || 0,
+          Number.parseFloat(cs.paddingRight) || 0,
+          Number.parseFloat(cs.paddingBottom) || 0,
+          Number.parseFloat(cs.paddingLeft) || 0
+        )
         var s = {
           el: el,
-          pad: pad,
-          fill: fill || el,
-          ring: ring,
           n: n,
           left: r.left,
           top: r.top,
           w: r.width,
           h: r.height,
           rad: cornerRadii(cs, r.width, r.height),
-          lim: Math.max(5, ((pad || 30) - 5) * EDGE_LIM),
+          lim: Math.min(pad || 5, Math.min(r.width, r.height) * 0.1),
           ox: new Float32Array(n),
           oy: new Float32Array(n),
           lx: new Float32Array(n),
           ly: new Float32Array(n),
-          oStr: new Array(n),
-          iStr: ring ? new Array(n) : null,
-          band: ring ? new Array(2 * n + 2) : null
+          oStr: new Array(n)
         }
-        buildOutline(s, pad)
+        buildOutline(s)
         shapes.push(s)
       }
     }
@@ -946,9 +890,6 @@ fragColor=vec4(col,1.0);
         lx = s.lx,
         ly = s.ly
       var oStr = s.oStr,
-        iStr = s.iStr,
-        nx = s.nx,
-        ny = s.ny,
         k
       for (k = 0; k < n; k++) {
         var vx = ox[k],
@@ -958,20 +899,8 @@ fragColor=vec4(col,1.0);
         lx[k] = vx
         ly[k] = vy
         oStr[k] = px1(px) + ' ' + px1(py)
-        if (iStr)
-          iStr[k] =
-            px1(px - nx[k] * STROKE) + ' ' + px1(py - ny[k] * STROKE)
       }
-      s.fill.style.clipPath = 'polygon(' + oStr.join(',') + ')'
-      if (!iStr) return
-      var b = s.band,
-        bi = 0
-      for (k = 0; k < n; k++) b[bi++] = oStr[k]
-      b[bi++] = oStr[0]
-      b[bi++] = iStr[0]
-      for (k = n - 1; k >= 1; k--) b[bi++] = iStr[k]
-      b[bi++] = iStr[0]
-      s.ring.style.clipPath = 'polygon(' + b.join(',') + ')'
+      s.el.style.clipPath = 'polygon(' + oStr.join(',') + ')'
     }
     function refreshRects() {
       for (const s of shapes) {
@@ -983,7 +912,7 @@ fragColor=vec4(col,1.0);
         s.w = r.width
         s.h = r.height
         s.rad = cornerRadii(getComputedStyle(s.el), r.width, r.height)
-        buildOutline(s, s.pad)
+        buildOutline(s)
       }
     }
     function updateShapes(force) {
@@ -996,18 +925,14 @@ fragColor=vec4(col,1.0);
       }
     }
     var sa = new Float32Array(24),
-      saOff = false,
-      dpx = 0,
-      dpy = 0,
-      dpz = 0
+      saOff = false
     var time = 0,
       last = performance.now(),
       raf = 0,
       retry = 0,
       quiet = 0,
       slept = false
-    var dropTimer = 2,
-      slowT = 0,
+    var slowT = 0,
       fastT = 0,
       recoverAfter = 10,
       shapeT = 0,
@@ -1022,15 +947,6 @@ fragColor=vec4(col,1.0);
       if (!A || !B) return false
       document.body.classList.remove('nogl')
       return true
-    }
-    function scheduleDrop(dt, steps) {
-      dropTimer -= dt
-      if (reduced || dropTimer > 0) return -1
-      dropTimer = 3.5 + rnd() * 4.5
-      dpx = (0.05 + rnd() * 0.85) * aspect
-      dpy = 0.05 + rnd() * 0.85
-      dpz = -(0.015 + rnd() * 0.025) * DROP
-      return Math.trunc(rnd() * steps)
     }
     function updateAgents(dt) {
       var stirred = false
@@ -1091,7 +1007,7 @@ fragColor=vec4(col,1.0);
         sa[u + 3] = a.py + (a.y - a.py) * t1
       }
     }
-    function simulate(dt, steps, dropStep) {
+    function simulate(dt, steps) {
       var live = packAgents()
       gl.useProgram(pSim)
       gl.uniform1f(S.uDT, dt / steps)
@@ -1106,9 +1022,6 @@ fragColor=vec4(col,1.0);
           packSegments(st / steps, (st + 1) / steps)
           gl.uniform4fv(S.uSA, sa)
         }
-        if (st === dropStep) gl.uniform3f(S.uDrop, dpx, dpy, dpz)
-        else if (dropStep >= 0 && st === dropStep + 1)
-          gl.uniform3f(S.uDrop, 0, 0, 0)
         gl.bindTexture(gl.TEXTURE_2D, A.tex)
         gl.bindFramebuffer(gl.FRAMEBUFFER, B.fbo)
         gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -1116,7 +1029,6 @@ fragColor=vec4(col,1.0);
         A = B
         B = tmp
       }
-      if (dropStep >= steps - 1) gl.uniform3f(S.uDrop, 0, 0, 0)
     }
     function stirCpu(dt) {
       for (const a of agents) {
@@ -1139,10 +1051,6 @@ fragColor=vec4(col,1.0);
         splat(0, wheel.life * 0.75, dt)
       }
       cpuAdvance(dt)
-      shapeT += dt
-      if (shapeT < SHAPE_STEP) return
-      shapeT = 0
-      updateShapes(false)
     }
     function sleepAll() {
       slept = true
@@ -1203,15 +1111,20 @@ fragColor=vec4(col,1.0);
       dt = clamp(dt, 1 / 240, 1 / 20)
       time += dt
       var steps = clamp(Math.round(dt * RATE), 1, 10)
-      var dropStep = scheduleDrop(dt, steps)
-      var stirred = updateAgents(dt) || dropStep >= 0 || wheel.life > 0
+      var stirred = updateAgents(dt) || wheel.life > 0
       quiet = stirred ? 0 : quiet + dt
       var asleep = quiet > SLEEP_AFTER
       if (stirred) slept = false
-      if (!asleep) simulate(dt, steps, dropStep)
+      if (!asleep) simulate(dt, steps)
       wheel.life = Math.max(0, wheel.life - dt * WHEEL_FADE)
-      if (!asleep) stirCpu(dt)
-      else if (!slept) sleepAll()
+      if (!asleep) {
+        stirCpu(dt)
+        shapeT += dt
+        if (shapeT >= SHAPE_STEP) {
+          shapeT = 0
+          updateShapes(false)
+        }
+      } else if (!slept) sleepAll()
       for (const a of agents) {
         a.px = a.x
         a.py = a.y
@@ -1256,11 +1169,6 @@ fragColor=vec4(col,1.0);
         last = performance.now()
         raf = requestAnimationFrame(frame)
       }
-    })
-    motionMq.addEventListener('change', function (e) {
-      reduced = e.matches
-      gl.useProgram(pRen)
-      gl.uniform1f(R.uSwell, reduced ? SWELL_CALM : SWELL)
     })
     resize()
     raf = requestAnimationFrame(frame)
