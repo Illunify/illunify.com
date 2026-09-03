@@ -1,0 +1,21 @@
+{
+	"name": "Placeholder Web App",
+	"short_name": "Placeholder",
+	"description": "Placeholder Web Application",
+	"start_url": "/",
+	"display": "fullscreen",
+	"background_color": "#0a0a08",
+	"theme_color": "#0a0a08",
+	"icons": [
+		{
+			"src": "/assets/mark-logo-192.png",
+			"sizes": "192x192",
+			"type": "image/png"
+		},
+		{
+			"src": "/assets/mark-logo-512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		}
+	]
+}
