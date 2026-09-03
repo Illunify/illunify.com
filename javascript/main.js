@@ -109,10 +109,12 @@ uniform float uRough;
 uniform float uWide;
 uniform float uSheen;
 uniform float uGloss;
-uniform vec3 uSun;
+uniform float uFrost;
 const float PI=3.14159265359;
+const vec3 LGT[4]=vec3[4](vec3(0.6,0.0,0.8),vec3(-0.6,0.0,0.8),vec3(0.0,0.6,0.8),vec3(0.0,-0.6,0.8));
 const float C_BOX=0.7421;
-const vec3 C_WATER=vec3(0.4205,0.5136,0.6251);
+const vec3 C_FROST=vec3(0.655,0.81,0.935);
+const vec3 C_WATER=vec3(0.6035);
 float hash21(vec2 p){
 vec3 q=fract(p.xyx*vec3(0.1031,0.1030,0.0973));
 q+=dot(q,q.yzx+33.33);
@@ -120,8 +122,12 @@ return fract((q.x+q.y)*q.z);
 }
 float skyCol(vec3 r){
 float c=mix(C_BOX*0.85,1.05,pow(clamp(r.z*0.5+0.5,0.0,1.0),1.5));
-float s=max(dot(r,uSun),0.0);
-return c+pow(s,2400.0)*10.0+0.075*pow(s,30.0);
+float g=0.0;
+for(int i=0;i<4;i++){
+float s=max(dot(r,LGT[i]),0.0);
+g+=pow(s,120.0)*0.5+0.1*pow(s,15.0);
+}
+return c+g*0.25;
 }
 float ggx(float NoH,float NoV,float NoL,float rough,float F){
 float a=max(rough,0.015);
@@ -152,17 +158,15 @@ vec3 col=mix(mix(vec3(C_BOX),C_WATER,wave),vec3(skyCol(reflect(I,N))),Fr);
 float aaR=clamp(length(fwidth(grad))*0.45,0.0,0.35);
 float rr=sqrt(uRough*uRough+aaR*aaR);
 float rw=sqrt(uWide*uWide+aaR*aaR);
-vec3 L2=normalize(vec3(0.45,-0.35,0.85));
-vec3 H1=normalize(V+uSun);
-float NoH1=max(dot(N,H1),0.0);
-float NoL1=max(dot(N,uSun),0.0);
-float F1=F0+(1.0-F0)*pow(1.0-max(dot(V,H1),0.0),5.0);
-vec3 H2=normalize(V+L2);
-float NoH2=max(dot(N,H2),0.0);
-float NoL2=max(dot(N,L2),0.0);
-float F2=F0+(1.0-F0)*pow(1.0-max(dot(V,H2),0.0),5.0);
-col+=ggx(NoH1,NoV,NoL1,rw,F1)*uSheen+ggx(NoH1,NoV,NoL1,rr,F1)*uGloss+ggx(NoH2,NoV,NoL2,rw*1.5,F2)*uSheen*0.35;
-col*=1.0-0.115*smoothstep(0.15,1.35,length(grad));
+for(int i=0;i<4;i++){
+vec3 Li=LGT[i];
+vec3 Hi=normalize(V+Li);
+float NoHi=max(dot(N,Hi),0.0);
+float NoLi=max(dot(N,Li),0.0);
+float Fi=F0+(1.0-F0)*pow(1.0-max(dot(V,Hi),0.0),5.0);
+col+=ggx(NoHi,NoV,NoLi,rw,Fi)*uSheen+ggx(NoHi,NoV,NoLi,rr,Fi)*uGloss;
+}
+col=mix(col,C_FROST,uFrost*smoothstep(0.15,1.35,length(grad)));
 col=mix(col,1.0-exp(-col),smoothstep(0.75,1.5,col));
 col=mix(col*12.92,1.055*pow(max(col,vec3(0.0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),col));
 float ft=fract(uTime);
@@ -249,7 +253,7 @@ fragColor=vec4(col,1.0);
           'uWide',
           'uSheen',
           'uGloss',
-          'uSun'
+          'uFrost'
         ],
         R
       )
@@ -272,12 +276,12 @@ fragColor=vec4(col,1.0);
       setConst(pRen, R, {
         uGradScale: STEEP * SIM_H * 0.25,
         uEta: 2.5,
-        uRough: 0.05,
-        uWide: 0.35,
-        uSheen: 1.85,
-        uGloss: 1.65,
+        uRough: 0.35,
+        uWide: 0.75,
+        uFrost: 0.25,
+        uSheen: 0.55,
+        uGloss: 0.5,
       })
-      gl.uniform3f(R.uSun, -0.3495, 0.425, 0.835)
       A = null
       B = null
       simW = 0
@@ -633,104 +637,104 @@ fragColor=vec4(col,1.0);
     }
     var shapes = []
     function trimSeg(cnt) {
-    	var b = -1
-    	for (var k = 0; k < 8; k += 2)
-    		if (cnt[k] > 1 && (b < 0 || cnt[k] > cnt[b])) b = k
-    	if (b < 0) return 0
-    	cnt[b]--
-    	return -1
+      var b = -1
+      for (var k = 0; k < 8; k += 2)
+        if (cnt[k] > 1 && (b < 0 || cnt[k] > cnt[b])) b = k
+      if (b < 0) return 0
+      cnt[b]--
+      return -1
     }
     function growSeg(seg, cnt) {
-    	var b = 0
-    	for (var k = 1; k < 8; k++)
-    		if (seg[k] / (cnt[k] + 1) > seg[b] / (cnt[b] + 1)) b = k
-    	cnt[b]++
-    	return 1
+      var b = 0
+      for (var k = 1; k < 8; k++)
+        if (seg[k] / (cnt[k] + 1) > seg[b] / (cnt[b] + 1)) b = k
+      cnt[b]++
+      return 1
     }
     function allocPoints(seg, per, n) {
-    	var cnt = [0, 0, 0, 0, 0, 0, 0, 0],
-    		used = 0,
-    		k
-    	for (k = 0; k < 8; k++) {
-    		cnt[k] = Math.round((seg[k] / per) * n)
-    		used += cnt[k]
-    	}
-    	for (k = 1; k < 8; k += 2) {
-    		if (seg[k] <= 0 || cnt[k] >= 5) continue
-    		used += 5 - cnt[k]
-    		cnt[k] = 5
-    	}
-    	while (used > n && trimSeg(cnt)) used--
-    	while (used < n && growSeg(seg, cnt)) used++
-    	return cnt
+      var cnt = [0, 0, 0, 0, 0, 0, 0, 0],
+        used = 0,
+        k
+      for (k = 0; k < 8; k++) {
+        cnt[k] = Math.round((seg[k] / per) * n)
+        used += cnt[k]
+      }
+      for (k = 1; k < 8; k += 2) {
+        if (seg[k] <= 0 || cnt[k] >= 5) continue
+        used += 5 - cnt[k]
+        cnt[k] = 5
+      }
+      while (used > n && trimSeg(cnt)) used--
+      while (used < n && growSeg(seg, cnt)) used++
+      return cnt
     }
     function arcPoint(s, g, w, c, t) {
-    	var rr = g.r[(c + 1) & 3],
-    		a = -g.q + c * g.q + t / (rr || 1),
-    		ux = Math.cos(a),
-    		uy = Math.sin(a)
-    	s.bx[w] = g.acx[c] + rr * ux
-    	s.by[w] = g.acy[c] + rr * uy
+      var rr = g.r[(c + 1) & 3],
+        a = -g.q + c * g.q + t / (rr || 1),
+        ux = Math.cos(a),
+        uy = Math.sin(a)
+      s.bx[w] = g.acx[c] + rr * ux
+      s.by[w] = g.acy[c] + rr * uy
     }
     function edgePoint(s, g, w, c, t) {
-    	s.bx[w] = g.sbx[c] + g.sdx[c] * t
-    	s.by[w] = g.sby[c] + g.sdy[c] * t
+      s.bx[w] = g.sbx[c] + g.sdx[c] * t
+      s.by[w] = g.sby[c] + g.sdy[c] * t
     }
     function outlineGeom(s) {
-    	var ew = s.w,
-    		eh = s.h,
-    		cap = Math.min(ew, eh) * 0.5,
-    		q = Math.PI * 0.5,
-    		r = [0, 0, 0, 0],
-    		k
-    	for (k = 0; k < 4; k++) r[k] = clamp(s.rad[k], 0, cap)
-    	var seg = [
-    		Math.max(0, ew - r[0] - r[1]),
-    		r[1] * q,
-    		Math.max(0, eh - r[1] - r[2]),
-    		r[2] * q,
-    		Math.max(0, ew - r[2] - r[3]),
-    		r[3] * q,
-    		Math.max(0, eh - r[3] - r[0]),
-    		r[0] * q
-    	]
-    	var per = 0
-    	for (k = 0; k < 8; k++) per += seg[k]
-    	return {
-    		q: q,
-    		r: r,
-    		seg: seg,
-    		per: per > 0 ? per : 1,
-    		acx: [ew - r[1], ew - r[2], r[3], r[0]],
-    		acy: [r[1], eh - r[2], eh - r[3], r[0]],
-    		sbx: [r[0], ew, ew - r[2], 0],
-    		sby: [0, r[1], eh, eh - r[3]],
-    		sdx: [1, 0, -1, 0],
-    		sdy: [0, 1, 0, -1]
-    	}
+      var ew = s.w,
+        eh = s.h,
+        cap = Math.min(ew, eh) * 0.5,
+        q = Math.PI * 0.5,
+        r = [0, 0, 0, 0],
+        k
+      for (k = 0; k < 4; k++) r[k] = clamp(s.rad[k], 0, cap)
+      var seg = [
+        Math.max(0, ew - r[0] - r[1]),
+        r[1] * q,
+        Math.max(0, eh - r[1] - r[2]),
+        r[2] * q,
+        Math.max(0, ew - r[2] - r[3]),
+        r[3] * q,
+        Math.max(0, eh - r[3] - r[0]),
+        r[0] * q
+      ]
+      var per = 0
+      for (k = 0; k < 8; k++) per += seg[k]
+      return {
+        q: q,
+        r: r,
+        seg: seg,
+        per: per > 0 ? per : 1,
+        acx: [ew - r[1], ew - r[2], r[3], r[0]],
+        acy: [r[1], eh - r[2], eh - r[3], r[0]],
+        sbx: [r[0], ew, ew - r[2], 0],
+        sby: [0, r[1], eh, eh - r[3]],
+        sdx: [1, 0, -1, 0],
+        sdy: [0, 1, 0, -1]
+      }
     }
     function buildOutline(s) {
-    	var n = s.n
-    	s.bx = new Float32Array(n)
-    	s.by = new Float32Array(n)
-    	var g = outlineGeom(s),
-    		cnt = allocPoints(g.seg, g.per, n),
-    		w = 0
-    	for (var i = 0; i < 8; i++) {
-    		var c = i >> 1,
-    			m = cnt[i]
-    		for (var j = 0; j < m && w < n; j++) {
-    			var t = (j / m) * g.seg[i]
-    			if (i & 1) arcPoint(s, g, w, c, t)
-    			else edgePoint(s, g, w, c, t)
-    			w++
-    		}
-    	}
-    	while (w < n) {
-    		s.bx[w] = s.bx[w - 1]
-    		s.by[w] = s.by[w - 1]
-    		w++
-    	}
+      var n = s.n
+      s.bx = new Float32Array(n)
+      s.by = new Float32Array(n)
+      var g = outlineGeom(s),
+        cnt = allocPoints(g.seg, g.per, n),
+        w = 0
+      for (var i = 0; i < 8; i++) {
+        var c = i >> 1,
+          m = cnt[i]
+        for (var j = 0; j < m && w < n; j++) {
+          var t = (j / m) * g.seg[i]
+          if (i & 1) arcPoint(s, g, w, c, t)
+          else edgePoint(s, g, w, c, t)
+          w++
+        }
+      }
+      while (w < n) {
+        s.bx[w] = s.bx[w - 1]
+        s.by[w] = s.by[w - 1]
+        w++
+      }
     }
     function cornerRadii(cs, w, h) {
       var out = [0, 0, 0, 0],
@@ -1172,4 +1176,81 @@ fragColor=vec4(col,1.0);
     })
     resize()
     raf = requestAnimationFrame(frame)
+  })()
+  ; (function () {
+    var all = function (r, s) {
+      return [].slice.call(r.querySelectorAll(s))
+    }
+    var TEXT = 'h1, h2, h3, p, cite'
+    var SLIDES =
+      '#HOME section:nth-of-type(1), #HOME section:nth-of-type(2) article, .QUOTE, #OFFERS section, #PROFILE'
+    function words(el) {
+      var out = [],
+        nodes = [],
+        w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      while (w.nextNode()) nodes.push(w.currentNode)
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i]
+        if (!n.nodeValue.trim()) continue
+        var f = document.createDocumentFragment(),
+          parts = n.nodeValue.split(/(\s+)/)
+        for (var j = 0; j < parts.length; j++) {
+          if (!parts[j]) continue
+          if (!parts[j].trim()) {
+            f.appendChild(document.createTextNode(parts[j]))
+            continue
+          }
+          var sp = document.createElement('span')
+          sp.className = 'w'
+          sp.textContent = parts[j]
+          f.appendChild(sp)
+          out.push(sp)
+        }
+        n.parentNode.replaceChild(f, n)
+      }
+      return out
+    }
+    var quotes = all(document, '.QUOTE')
+    var sets = all(document, TEXT).map(function (t) {
+      return { el: t, w: words(t) }
+    })
+    if (
+      typeof gsap === 'undefined' ||
+      typeof ScrollTrigger === 'undefined' ||
+      matchMedia('(prefers-reduced-motion: reduce)').matches
+    )
+      return
+    var ACT = 'play none none reverse'
+    all(document, SLIDES).forEach(function (b) {
+      gsap.fromTo(
+        b,
+        { filter: 'blur(15px)' },
+        {
+          filter: 'blur(0px)',
+          duration: 0.65,
+          ease: 'power2.out',
+          scrollTrigger: { trigger: b, start: 'top 85%', toggleActions: ACT }
+        }
+      )
+    })
+    sets.forEach(function (s) {
+      if (!s.w.length) return
+      var q = s.el.closest('.QUOTE')
+      gsap.fromTo(
+        s.w,
+        { opacity: 0, y: 15 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: 0.45,
+          ease: 'power2.out',
+          stagger: {
+            each: 0.05,
+            from: q && quotes.indexOf(q) === 1 ? 'end' : 'start'
+          },
+          scrollTrigger: { trigger: s.el, start: 'top 85%', toggleActions: ACT }
+        }
+      )
+    })
+    ScrollTrigger.refresh()
   })()
