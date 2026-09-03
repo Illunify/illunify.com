@@ -22,11 +22,9 @@
 :root {
 	--BACKGROUND: #e0e0e0;
 	--COLOR: #000;
-	--BOX: #e5e5e5;
-	--ACCENT: #8ba8c9;
-	--OUTLINE: #c5c5c5;
+	--OUTLINE: hsl(0 0% 77.3% / 0.4);
 	--TRANSITION: 0.35s;
-	--BEZIER: cubic-bezier(placeholder);
+	--BEZIER: cubic-bezier(0.25, 0.1, 0.25, 1);
 	--PX5: clamp(5px, 0.25vw, calc(5px + 0.25svh));
 	--PX10: clamp(10px, 0.5vw, calc(10px + 0.25svh));
 	--REGULAR: clamp(1rem, 0.5vw + 0.25svh, calc(1rem + 0.75svh));
@@ -62,6 +60,12 @@ body {
 	display: block;
 	z-index: 0;
 }
+[data-water],
+#gl {
+	will-change: transform;
+	transform: translate3d(0, 0, 0);
+	backface-visibility: hidden;
+}
 div,
 main,
 header,
@@ -71,9 +75,16 @@ section {
 }
 button {
 	all: unset;
-	background: var(--ACCENT);
 	padding: var(--PX10);
+	-webkit-backdrop-filter: blur(9px) brightness(1.1);
+	backdrop-filter: blur(9px) brightness(1.1);
 	border-radius: var(--PX10);
+	box-shadow:
+		inset -3px -4px 15px 6px hsl(212deg 37% 67% / 0.25),
+		inset -2px -2px 5px hsl(212deg 37% 67% / 0.1875),
+		inset -1px -1px 1px hsl(212deg 37% 67% / 0.5),
+		inset 8px 10px 15px hsl(212deg 37% 67% / 0.25),
+		inset 1px 1px 2px hsl(212deg 37% 67% / 0.375);
 	cursor: pointer;
 }
 p,
@@ -107,6 +118,17 @@ h4 {
 a {
 	white-space: nowrap;
 }
+.GLASS {
+	-webkit-backdrop-filter: blur(9px) brightness(1.1);
+	backdrop-filter: blur(9px) brightness(1.1);
+	border-radius: var(--PX10);
+	box-shadow:
+		inset -3px -4px 15px 6px hsl(205deg 70% 90% / 0.25),
+		inset -2px -2px 5px hsl(205deg 70% 90% / 0.1875),
+		inset -1px -1px 1px hsl(205deg 70% 90% / 0.5),
+		inset 8px 10px 15px hsl(205deg 30% 10% / 0.25),
+		inset 1px 1px 2px hsl(205deg 70% 90% / 0.375);
+}
 mark {
 	all: unset;
 	position: relative;
@@ -131,11 +153,11 @@ main {
 	padding: var(--PX10);
 	height: fit-content;
 }
-.HOME {
+#HOME {
 	flex-direction: column;
 	min-height: calc(100svh - var(--PX10));
 }
-.HOME section:nth-of-type(1) {
+#HOME section:nth-of-type(1) {
 	flex: 1;
 	flex-direction: column;
 	align-items: center;
@@ -143,23 +165,21 @@ main {
 	gap: var(--PX10);
 	text-align: center;
 }
-.HOME section:nth-of-type(1) article {
+#HOME section:nth-of-type(1) article {
 	align-items: center;
 	flex-direction: column;
 	gap: var(--PX10);
 	width: 35%;
 }
-.HOME section:nth-of-type(2) {
+#HOME section:nth-of-type(2) {
 	gap: var(--PX10);
 }
-.HOME section:nth-of-type(2) article {
-	background: var(--BOX);
+#HOME section:nth-of-type(2) article {
 	padding: var(--PX10);
-	border-radius: var(--PX10);
 	flex-direction: column;
 	gap: var(--PX10);
 }
-.HOME section:nth-of-type(2) article div {
+#HOME section:nth-of-type(2) article div {
 	justify-content: space-between;
 	width: 100%;
 }
@@ -172,57 +192,63 @@ main {
 }
 h3 {
 	height: fit-content;
-	background: var(--OUTLINE);
 	padding: var(--PX10);
+	-webkit-backdrop-filter: blur(9px) brightness(1.1);
+	backdrop-filter: blur(9px) brightness(1.1);
 	border-radius: var(--PX10);
+	box-shadow:
+		inset -3px -4px 15px 6px hsl(0 0% 77.3% / 0.25),
+		inset -2px -2px 5px hsl(0 0% 77.3% / 0.1875),
+		inset -1px -1px 1px hsl(0 0% 77.3% / 0.5),
+		inset 8px 10px 15px hsl(0 0% 77.3% / 0.25),
+		inset 1px 1px 2px hsl(0 0% 77.3% / 0.375);
 }
-.OFFERS {
+#OFFERS {
 	flex-direction: column;
 	gap: var(--PX10);
 	width: 100%;
 }
-.OFFERS article {
+#OFFERS article {
 	flex-direction: column;
 	gap: var(--PX10);
 	width: 40%;
 }
-.OFFERS section:nth-of-type(1),
-.OFFERS section:nth-of-type(2) {
+#OFFERS section:nth-of-type(1),
+#OFFERS section:nth-of-type(2) {
 	flex-direction: column;
 	gap: var(--PX10);
-	background: var(--BOX);
 	padding: var(--PX10);
-	border-radius: var(--PX10);
 }
-.OFFERS section:nth-of-type(1) > div,
-.OFFERS section:nth-of-type(2) > div {
+#OFFERS section:nth-of-type(1) > div,
+#OFFERS section:nth-of-type(2) > div {
 	width: 100%;
 	justify-content: space-between;
 }
-.OFFERS section:nth-of-type(1) div div,
-.OFFERS section:nth-of-type(2) div div {
+#OFFERS section:nth-of-type(1) div div,
+#OFFERS section:nth-of-type(2) div div {
 	align-items: flex-end;
 	gap: var(--PX10);
 }
-.BIOGRAPHY {
+#PROFILE {
 	width: 100%;
 	align-items: center;
 	justify-content: space-evenly;
+	gap: calc(var(--PX5) * 3);
 }
-.BIOGRAPHY article {
+#PROFILE article {
 	flex-direction: column;
 	gap: var(--PX10);
 	width: 30%;
 }
-.BIOGRAPHY article div {
+#PROFILE article div {
 	gap: var(--PX10);
 }
-.BIOGRAPHY article:nth-of-type(2) div,
-.BIOGRAPHY article:nth-of-type(3) div {
-	gap: calc(var(--PX10) * 3);
+#PROFILE article:nth-of-type(2) div,
+#PROFILE article:nth-of-type(3) div {
+	gap: calc(var(--PX10) * 2);
 }
-.BIOGRAPHY article:nth-of-type(2) div > p,
-.BIOGRAPHY article:nth-of-type(3) div > p {
+#PROFILE article:nth-of-type(2) div > p,
+#PROFILE article:nth-of-type(3) div > p {
 	font:
 		calc(var(--DISPLAY) * 2) / 0.75 Instrument-Serif-Italic,
 		Arial,
@@ -231,7 +257,6 @@ h3 {
 }
 nav {
 	z-index: 1;
-	background: var(--BOX);
 	padding: var(--PX10);
 	border-radius: var(--PX10);
 	gap: var(--PX10);
@@ -242,15 +267,13 @@ nav {
 	width: fit-content;
 	top: var(--PX10);
 	left: 50%;
-	transform: translateX(-50%);
+	transform: translateX(-50%) !important;
 }
 svg {
 	fill: none;
 	display: flex;
-	will-change: transform;
 	justify-content: center;
-	transform: translateZ(0);
-	backface-visibility: hidden;
+	height: calc(var(--DISPLAY) * 1.5);
 }
 nav > a svg {
 	height: calc(var(--REGULAR) + 0.5svh);
@@ -272,14 +295,6 @@ footer {
 	width: fit-content;
 	flex-direction: column;
 	justify-content: center;
-}
-@property --pad {
-	syntax: '<length>';
-	inherits: true;
-	initial-value: 0px;
-}
-[data-water] {
-	--pad: var(--PX10);
 }
 @keyframes fadeIn {
 	to {
@@ -320,7 +335,6 @@ body.loaded #preloader {
 .loading-bar {
 	width: 0%;
 	height: 100%;
-	background-color: var(--ACCENT);
 	transition: width 0.75s var(--BEZIER);
 }
 .loading-percentage {
@@ -340,36 +354,68 @@ body.loaded #preloader {
 		transform: none;
 	}
 }
+@media (max-width: 1024px) {
+	#HOME section:nth-of-type(2) {
+		flex-direction: column;
+	}
+	#PROFILE,
+	#PROFILE article div {
+		flex-direction: column;
+		text-align: center;
+		align-items: center;
+	}
+	#PROFILE article {
+		width: 43%;
+		text-align: center;
+		align-items: center;
+	}
+	#HOME section:nth-of-type(1) {
+		min-height: calc(100svh - var(--PX5));
+	}
+	#HOME section:nth-of-type(1) article {
+		width: 43%;
+	}
+	#PROFILE {
+		gap: calc(var(--PX10) * 2);
+	}
+}
 @media (max-width: 768px) {
-	.HOME,
-	.HOME section:nth-of-type(1),
-	.HOME section:nth-of-type(1) article,
-	.HOME section:nth-of-type(2),
-	.HOME section:nth-of-type(2) article,
+	#HOME,
+	#HOME section:nth-of-type(1),
+	#HOME section:nth-of-type(1) article,
+	#HOME section:nth-of-type(2),
+	#HOME section:nth-of-type(2) article,
 	.QUOTE,
-	.OFFERS,
-	.OFFERS article,
-	.OFFERS section:nth-of-type(1),
-	.OFFERS section:nth-of-type(2),
-	.OFFERS section:nth-of-type(1) > div,
-	.OFFERS section:nth-of-type(2) > div,
-	.OFFERS section:nth-of-type(1) div div,
-	.OFFERS section:nth-of-type(2) div div,
-	.BIOGRAPHY article,
-	.BIOGRAPHY article div,
-	.BIOGRAPHY article:nth-of-type(2) div,
-	.BIOGRAPHY article:nth-of-type(3) div,
+	#OFFERS,
+	#OFFERS article,
+	#OFFERS section:nth-of-type(1),
+	#OFFERS section:nth-of-type(2),
+	#OFFERS section:nth-of-type(1) > div,
+	#OFFERS section:nth-of-type(2) > div,
+	#OFFERS section:nth-of-type(1) div div,
+	#OFFERS section:nth-of-type(2) div div,
+	#PROFILE article,
+	#PROFILE article div,
+	#PROFILE article:nth-of-type(2) div,
+	#PROFILE article:nth-of-type(3) div,
 	nav {
 		gap: var(--PX5);
 	}
-	.HOME section:nth-of-type(1) {
-		min-height: calc(100svh - var(--PX5));
+	nav {
+		top: var(--PX5);
 	}
-	.BIOGRAPHY {
-		gap: calc(var(--PX5) * 3);
+	svg {
+		height: calc(var(--RESPONSIVE-DISPLAY) * 2);
 	}
-	.HOME section:nth-of-type(1) article {
-		width: 43%;
+	#PROFILE article:nth-of-type(2) div > p,
+	#PROFILE article:nth-of-type(3) div > p {
+		font:
+			calc(var(--RESPONSIVE-DISPLAY) * 2) / 0.75 Instrument-Serif-Italic,
+			Arial,
+			sans-serif;
+	}
+	#PROFILE {
+		gap: var(--PX10);
 	}
 	p,
 	a,
@@ -390,27 +436,13 @@ body.loaded #preloader {
 	mark {
 		font-size: var(--RESPONSIVE-DISPLAY);
 	}
-	.OFFERS section:nth-of-type(1) > div,
-	.OFFERS section:nth-of-type(2) > div {
+	#OFFERS section:nth-of-type(1) > div,
+	#OFFERS section:nth-of-type(2) > div {
 		flex-direction: column;
 		align-items: flex-start;
 	}
 	main {
 		padding: var(--PX5);
 		gap: 20svh;
-	}
-	.BIOGRAPHY article {
-		width: 43%;
-		text-align: center;
-		align-items: center;
-	}
-	.BIOGRAPHY article div {
-		text-align: center;
-		align-items: center;
-	}
-	.HOME section:nth-of-type(2),
-	.BIOGRAPHY,
-	.BIOGRAPHY article div {
-		flex-direction: column;
 	}
 }
