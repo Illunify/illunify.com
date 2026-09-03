@@ -808,7 +808,8 @@ fragColor=vec4(col,1.0);
         if (!r.width || !r.height) continue
         var cs = getComputedStyle(el)
         var n = Number.parseInt(el.dataset.n, 10) || 60
-        var pad = Number.parseFloat(cs.getPropertyValue('--pad')) || 0
+        var pad = Number.parseFloat(cs.getPropertyValue('--pad'))
+        if (!(pad >= 0)) pad = 10
         var ring = el.querySelector('.ring')
         var fill = el.querySelector('.fill')
         var s = {

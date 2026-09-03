@@ -273,6 +273,11 @@ footer {
 	flex-direction: column;
 	justify-content: center;
 }
+@property --pad {
+	syntax: '<length>';
+	inherits: true;
+	initial-value: 0px;
+}
 [data-water] {
 	--pad: var(--PX10);
 }
