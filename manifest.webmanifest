@@ -1,11 +1,11 @@
 {
-	"name": "Placeholder Web App",
-	"short_name": "Placeholder",
-	"description": "Placeholder Web Application",
+	"name": "Illunify Web App",
+	"short_name": "Illunify",
+	"description": "Illunify Media Studio Web Application",
 	"start_url": "/",
 	"display": "fullscreen",
-	"background_color": "#0a0a08",
-	"theme_color": "#0a0a08",
+	"background_color": "#e0e0e0",
+	"theme_color": "#e0e0e0",
 	"icons": [
 		{
 			"src": "/assets/mark-logo-192.png",

@@ -121,7 +121,6 @@ a {
 .GLASS {
 	-webkit-backdrop-filter: blur(9px) brightness(1.1);
 	backdrop-filter: blur(9px) brightness(1.1);
-	padding: var(--PX10);
 	border-radius: var(--PX10);
 	box-shadow:
 		inset 0 0 15px 6px hsl(0 0% 86.3% / 0.25),
@@ -139,10 +138,6 @@ mark {
 		var(--DISPLAY) / 0.75 Instrument-Serif,
 		Arial,
 		sans-serif;
-}
-.w,
-.c {
-	display: inline-block;
 }
 mark::before {
 	content: attr(outline);
@@ -174,12 +169,13 @@ main {
 	align-items: center;
 	flex-direction: column;
 	gap: var(--PX10);
-	width: 44%;
+	width: 35%;
 }
 #HOME section:nth-of-type(2) {
 	gap: var(--PX10);
 }
 #HOME section:nth-of-type(2) article {
+	padding: var(--PX10);
 	flex-direction: column;
 	gap: var(--PX10);
 }
@@ -215,12 +211,13 @@ h3 {
 #OFFERS article {
 	flex-direction: column;
 	gap: var(--PX10);
-	width: 44%;
+	width: 40%;
 }
 #OFFERS section:nth-of-type(1),
 #OFFERS section:nth-of-type(2) {
 	flex-direction: column;
 	gap: var(--PX10);
+	padding: var(--PX10);
 }
 #OFFERS section:nth-of-type(1) > div,
 #OFFERS section:nth-of-type(2) > div {
@@ -241,7 +238,7 @@ h3 {
 #PROFILE article {
 	flex-direction: column;
 	gap: var(--PX10);
-	width: 44%;
+	width: 30%;
 }
 #PROFILE article div {
 	gap: var(--PX10);
@@ -256,10 +253,12 @@ h3 {
 		calc(var(--DISPLAY) * 2) / 0.75 Instrument-Serif-Italic,
 		Arial,
 		sans-serif;
-	-webkit-text-stroke: 3px var(--COLOR);
+	-webkit-text-stroke: 4px var(--COLOR);
 }
 nav {
 	z-index: 1;
+	padding: var(--PX10);
+	border-radius: var(--PX10);
 	gap: var(--PX10);
 	display: flex;
 	justify-content: center;
@@ -268,13 +267,20 @@ nav {
 	width: fit-content;
 	top: var(--PX10);
 	left: 50%;
-	transform: translateX(-50%);
+	transform: translateX(-50%) !important;
 }
 svg {
 	fill: none;
 	display: flex;
 	justify-content: center;
 	height: calc(var(--DISPLAY) * 1.5);
+}
+nav > a svg {
+	height: calc(var(--REGULAR) + 0.5svh);
+	transition: transform var(--TRANSITION) var(--BEZIER);
+}
+nav > a svg:hover {
+	transform: scale(1.05);
 }
 img {
 	width: 100%;
@@ -283,12 +289,70 @@ img {
 	user-select: none;
 	border-radius: var(--PX10);
 }
+footer {
+	display: flex;
+	height: 100svh;
+	width: fit-content;
+	flex-direction: column;
+	justify-content: center;
+}
+@keyframes fadeIn {
+	to {
+		opacity: 1;
+	}
+}
+#preloader > * {
+	opacity: 0;
+	animation: fadeIn var(--TRANSITION) var(--BEZIER) forwards;
+}
+#preloader > *:nth-child(1) {
+	animation-delay: var(--TRANSITION);
+}
+#preloader > *:nth-child(2) {
+	animation-delay: var(--TRANSITION);
+}
+#preloader {
+	z-index: 5;
+	width: 100vw;
+	height: 100svh;
+	position: fixed;
+	background: var(--BACKGROUND);
+	transition:
+		transform 0.65s 0.85s var(--BEZIER),
+		opacity var(--TRANSITION) 1.25s var(--BEZIER);
+}
+body.loaded #preloader {
+	opacity: 0;
+	transform: translateY(-100svh);
+}
+.loading-bar-container {
+	left: 0;
+	bottom: 0;
+	width: 100vw;
+	height: 5svh;
+	position: absolute;
+}
+.loading-bar {
+	width: 0%;
+	height: 100%;
+	transition: width 0.75s var(--BEZIER);
+}
+.loading-percentage {
+	left: 7.5svh;
+	bottom: 7.5svh;
+	position: absolute;
+}
 ::-webkit-scrollbar {
 	display: none;
 }
 ::selection {
 	color: var(--BACKGROUND);
 	background: var(--COLOR);
+}
+@media (hover: none) {
+	nav a svg:hover {
+		transform: none;
+	}
 }
 @media (max-width: 1024px) {
 	#HOME section:nth-of-type(2) {
@@ -301,19 +365,18 @@ img {
 		align-items: center;
 	}
 	#PROFILE article {
-		width: 59%;
+		width: 43%;
 		text-align: center;
 		align-items: center;
 	}
 	#HOME section:nth-of-type(1) {
 		min-height: calc(100svh - var(--PX5));
 	}
+	#HOME section:nth-of-type(1) article {
+		width: 43%;
+	}
 	#PROFILE {
 		gap: calc(var(--PX10) * 2);
-	}
-	#OFFERS article,
-	#HOME section:nth-of-type(1) article {
-		width: 59%;
 	}
 }
 @media (max-width: 768px) {
@@ -381,17 +444,5 @@ img {
 	main {
 		padding: var(--PX5);
 		gap: 20svh;
-	}
-	#PROFILE article,
-	#OFFERS article,
-	#HOME section:nth-of-type(1) article {
-		width: 67%;
-	}
-}
-@media (max-width: 480px) {
-	#PROFILE article,
-	#OFFERS article,
-	#HOME section:nth-of-type(1) article {
-		width: 86%;
 	}
 }

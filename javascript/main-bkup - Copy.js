@@ -10,12 +10,21 @@ ScrollSmoother.get() || ScrollSmoother.create({ smooth: 1.5, smoothTouch: .15, n
       powerPreference: 'high-performance',
       desynchronized: true
     })
-    if (!gl) return
+    function bail() {
+      document.body.classList.add('nogl')
+    }
+    if (!gl) {
+      bail()
+      return
+    }
     var F32 = !!(
       gl.getExtension('EXT_color_buffer_float') &&
       gl.getExtension('OES_texture_float_linear')
     )
-    if (!F32 && !gl.getExtension('EXT_color_buffer_half_float')) return
+    if (!F32 && !gl.getExtension('EXT_color_buffer_half_float')) {
+      bail()
+      return
+    }
     function clamp(v, lo, hi) {
       return Math.min(Math.max(v, lo), hi)
     }
@@ -248,7 +257,10 @@ fragColor=vec4(col,1.0);
         ],
         R
       )
-      if (!pSim || !pRen) return false
+      if (!pSim || !pRen) {
+        bail()
+        return false
+      }
       gl.bindVertexArray(gl.createVertexArray())
       gl.activeTexture(gl.TEXTURE0)
       gl.clearColor(0, 0, 0, 1)
@@ -350,6 +362,7 @@ fragColor=vec4(col,1.0);
       B = makeTarget(nw, SIM_H)
       if (A && B) return true
       simW = 0
+      bail()
       return false
     }
     function resize() {
@@ -936,6 +949,7 @@ fragColor=vec4(col,1.0);
         resize()
       }
       if (!A || !B) return false
+      document.body.classList.remove('nogl')
       return true
     }
     function updateAgents(dt) {
@@ -1129,11 +1143,13 @@ fragColor=vec4(col,1.0);
       raf = 0
       A = null
       B = null
+      bail()
     })
     canvas.addEventListener('webglcontextrestored', function () {
       if (!initGL()) return
       resize()
       if (!A || !B) return
+      document.body.classList.remove('nogl')
       last = performance.now()
       if (!raf) raf = requestAnimationFrame(frame)
     })
@@ -1160,172 +1176,4 @@ fragColor=vec4(col,1.0);
     })
     resize()
     raf = requestAnimationFrame(frame)
-  })()
-  ; (function () {
-    var all = function (r, s) {
-      return Array.prototype.slice.call(r.querySelectorAll(s))
-    }
-    var TEXT = 'h1, h2, h3, h4, p, cite, button'
-    var SLIDES =
-      '#HOME section:nth-of-type(1), #HOME section:nth-of-type(2) article, .QUOTE, #OFFERS section, #PROFILE'
-    var RANK = { H1: 0, H2: 1, H4: 2, H3: 3, P: 4, CITE: 5, BUTTON: 6 }
-    var DUR = 0.95
-    var EASE = 'expo.out'
-    var AMT = 0.75
-    var BLUR = 10
-    var STEP = 0.05
-    var SIB = 0.1
-    var START = 'top bottom'
-    function isNum(el) {
-      return el.tagName === 'P' && /^\+?\d+$/.test(el.textContent.trim())
-    }
-    function words(el) {
-      var out = [],
-        nodes = [],
-        w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-      while (w.nextNode()) nodes.push(w.currentNode)
-      for (const n of nodes) {
-        if (!n.nodeValue.trim()) continue
-        var f = document.createDocumentFragment()
-        for (const part of n.nodeValue.split(/(\s+)/)) {
-          if (!part) continue
-          if (!part.trim()) {
-            f.appendChild(document.createTextNode(part))
-            continue
-          }
-          var sp = document.createElement('span')
-          sp.className = 'w'
-          sp.textContent = part
-          f.appendChild(sp)
-          out.push(sp)
-        }
-        n.parentNode.replaceChild(f, n)
-      }
-      return out
-    }
-    function chars(el) {
-      var out = []
-      for (const word of all(el, '.w')) {
-        var t = word.textContent
-        word.textContent = ''
-        for (const ch of t) {
-          var c = document.createElement('span')
-          c.className = 'c'
-          c.textContent = ch
-          word.appendChild(c)
-          out.push(c)
-        }
-      }
-      return out
-    }
-    function sib(el) {
-      var n = 0,
-        p = el.parentElement
-      if (!p) return 0
-      for (const ch of p.children) {
-        if (ch === el) break
-        if (ch.tagName === el.tagName) n++
-      }
-      return n
-    }
-    var sets = all(document, TEXT)
-      .filter(function (t) {
-        return !t.closest('nav')
-      })
-      .map(function (t) {
-        var n = isNum(t)
-        return { el: t, num: n, w: n ? [] : words(t) }
-      })
-    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return
-    var soft = matchMedia('(prefers-reduced-motion: reduce)').matches
-    var mob = matchMedia('(max-width: 768px)').matches
-    var ACT = 'play none none reverse'
-    var RISE = soft ? 10 : 30
-    var LIFT = soft ? 10 : 25
-    sets.forEach(function (s) {
-      s.fine = s.el.tagName === 'H1' || s.el.tagName === 'H2'
-      if (s.num) s.t = [s.el]
-      else if (s.fine) s.t = chars(s.el)
-      else s.t = s.w
-      s.at = (RANK[s.el.tagName] || 0) * STEP + sib(s.el) * SIB
-    })
-    function trig(el) {
-      return { trigger: el, start: START, toggleActions: ACT }
-    }
-    all(document, SLIDES).forEach(function (b) {
-      gsap.fromTo(
-        b,
-        { y: RISE },
-        {
-          y: 0,
-          duration: DUR,
-          ease: EASE,
-          delay: sib(b) * SIB,
-          scrollTrigger: trig(b)
-        }
-      )
-    })
-    sets.forEach(function (s) {
-      if (!s.t.length) return
-      if (!mob && s.w.length)
-        gsap.fromTo(
-          s.w,
-          { filter: 'blur(' + BLUR + 'px)' },
-          {
-            filter: 'blur(0px)',
-            duration: DUR,
-            ease: EASE,
-            delay: s.at,
-            stagger: { amount: AMT },
-            scrollTrigger: trig(s.el)
-          }
-        )
-      gsap.fromTo(
-        s.t,
-        { opacity: 0, y: LIFT },
-        {
-          opacity: 1,
-          y: 0,
-          duration: DUR,
-          ease: EASE,
-          delay: s.at,
-          stagger: { amount: AMT },
-          scrollTrigger: trig(s.el)
-        }
-      )
-      if (!s.num) return
-      var raw = s.el.textContent.trim(),
-        pre = raw.charAt(0) === '+' ? '+' : '',
-        end = Number.parseInt(raw.replace(/\D/g, ''), 10),
-        o = { v: 0 }
-      s.el.textContent = pre + '0'
-      gsap.to(o, {
-        v: end,
-        duration: DUR,
-        ease: EASE,
-        delay: s.at,
-        snap: { v: 1 },
-        onUpdate: function () {
-          s.el.textContent = pre + Math.round(o.v)
-        },
-        scrollTrigger: trig(s.el)
-      })
-    })
-    var navKids = all(document, 'nav > a, nav > button')
-    if (navKids.length)
-      gsap.timeline({ delay: 0.15 }).fromTo(
-        navKids,
-        mob
-          ? { opacity: 0, y: LIFT }
-          : { opacity: 0, y: LIFT, filter: 'blur(' + BLUR + 'px)' },
-        {
-          opacity: 1,
-          y: 0,
-          duration: DUR,
-          ease: EASE,
-          stagger: 0.1,
-          ...(mob ? {} : { filter: 'blur(0px)' })
-        }
-      )
-    ScrollTrigger.refresh()
   })()
