@@ -22,7 +22,7 @@
 :root {
 	--BACKGROUND: #e0e0e0;
 	--COLOR: #000;
-	--OUTLINE: hsl(0 0% 77.3% / 0.4);
+	--OUTLINE: #c5c5c5;
 	--TRANSITION: 0.35s;
 	--BEZIER: cubic-bezier(0.25, 0.1, 0.25, 1);
 	--PX5: clamp(5px, 0.25vw, calc(5px + 0.25svh));
@@ -35,6 +35,9 @@
 		calc(0.85rem + 0.75svh)
 	);
 	--RESPONSIVE-DISPLAY: clamp(2.5rem, 0.5vw + 0.25svh, calc(2.5rem + 0.75svh));
+	--card-w: 480px;
+	--card-ratio: 2.44;
+	--card-shadow: 0 15px 40px rgb(0 0 0 / 0.2);
 }
 * {
 	margin: 0;
@@ -52,18 +55,14 @@ body {
 	-webkit-user-select: none;
 	-webkit-touch-callout: none;
 }
-#gl {
+#GL {
+	z-index: 0;
 	position: fixed;
 	inset: 0;
 	width: 100vw;
 	height: 100svh;
 	display: block;
-	z-index: 0;
-}
-[data-water],
-#gl {
-	will-change: transform;
-	transform: translate3d(0, 0, 0);
+	transform: translateZ(0);
 	backface-visibility: hidden;
 }
 div,
@@ -76,11 +75,11 @@ section {
 button {
 	all: unset;
 	padding: var(--PX10);
-	-webkit-backdrop-filter: blur(9px) brightness(1.1);
-	backdrop-filter: blur(9px) brightness(1.1);
+	-webkit-backdrop-filter: blur(5px) brightness(1.1);
+	backdrop-filter: blur(5px) brightness(1.1);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset 0 0 15px 6px hsl(212deg 37% 67% / 0.25),
+		inset 0 0 15px 5px hsl(212deg 37% 67% / 0.25),
 		inset 0 0 5px hsl(212deg 37% 67% / 0.1875),
 		inset 0 0 1px hsl(212deg 37% 67% / 0.5),
 		inset 0 0 15px hsl(212deg 37% 67% / 0.25),
@@ -107,6 +106,15 @@ button {
 		sans-serif;
 	letter-spacing: -6.75%;
 }
+p,
+h1,
+h2,
+h3,
+h4,
+cite,
+button {
+	will-change: filter, opacity, transform;
+}
 h1,
 h2,
 h4 {
@@ -119,12 +127,12 @@ a {
 	white-space: nowrap;
 }
 .GLASS {
-	-webkit-backdrop-filter: blur(9px) brightness(1.1);
-	backdrop-filter: blur(9px) brightness(1.1);
+	-webkit-backdrop-filter: blur(5px) brightness(1.1);
+	backdrop-filter: blur(5px) brightness(1.1);
 	padding: var(--PX10);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset 0 0 15px 6px hsl(0 0% 86.3% / 0.25),
+		inset 0 0 15px 5px hsl(0 0% 86.3% / 0.25),
 		inset 0 0 5px hsl(0 0% 86.3% / 0.1875),
 		inset 0 0 1px hsl(0 0% 86.3% / 0.5),
 		inset 0 0 15px hsl(0 0% 86.3% / 0.25),
@@ -140,8 +148,7 @@ mark {
 		Arial,
 		sans-serif;
 }
-.w,
-.c {
+.W {
 	display: inline-block;
 }
 mark::before {
@@ -161,6 +168,7 @@ main {
 #HOME {
 	flex-direction: column;
 	min-height: calc(100svh - var(--PX10));
+	gap: var(--PX10);
 }
 #HOME section:nth-of-type(1) {
 	flex: 1;
@@ -177,7 +185,28 @@ main {
 	width: 44%;
 }
 #HOME section:nth-of-type(2) {
+	flex-direction: column;
 	gap: var(--PX10);
+}
+#HOME [role='tablist'],
+#HOME [role='tabpanel'] {
+	gap: var(--PX10);
+}
+#HOME [role='tabpanel'][hidden] {
+	display: none;
+}
+#VIEW-STUDIO {
+	width: calc(100vw - var(--PX10) * 2);
+	aspect-ratio: 5 / 2;
+	min-height: 45svh;
+	border-radius: var(--PX10);
+	overflow: hidden;
+}
+#VIEW-STUDIO iframe {
+	display: block;
+	border: 0;
+	width: 100%;
+	height: 100%;
 }
 #HOME section:nth-of-type(2) article {
 	flex-direction: column;
@@ -197,11 +226,11 @@ main {
 h3 {
 	height: fit-content;
 	padding: var(--PX10);
-	-webkit-backdrop-filter: blur(9px) brightness(1.1);
-	backdrop-filter: blur(9px) brightness(1.1);
+	-webkit-backdrop-filter: blur(5px) brightness(1.1);
+	backdrop-filter: blur(5px) brightness(1.1);
 	border-radius: var(--PX10);
 	box-shadow:
-		inset 0 0 15px 6px hsl(0 0% 77.3% / 0.25),
+		inset 0 0 15px 5px hsl(0 0% 77.3% / 0.25),
 		inset 0 0 5px hsl(0 0% 77.3% / 0.1875),
 		inset 0 0 1px hsl(0 0% 77.3% / 0.5),
 		inset 0 0 15px hsl(0 0% 77.3% / 0.25),
@@ -217,19 +246,17 @@ h3 {
 	gap: var(--PX10);
 	width: 44%;
 }
-#OFFERS section:nth-of-type(1),
-#OFFERS section:nth-of-type(2) {
+#OFFERS section {
 	flex-direction: column;
 	gap: var(--PX10);
 }
-#OFFERS section:nth-of-type(1) > div,
-#OFFERS section:nth-of-type(2) > div {
+#OFFERS section > div {
 	width: 100%;
 	justify-content: space-between;
 }
-#OFFERS section:nth-of-type(1) div div,
-#OFFERS section:nth-of-type(2) div div {
+#OFFERS section div div {
 	align-items: flex-end;
+	flex-wrap: wrap;
 	gap: var(--PX10);
 }
 #PROFILE {
@@ -290,8 +317,82 @@ img {
 	color: var(--BACKGROUND);
 	background: var(--COLOR);
 }
+#STAGE {
+	position: fixed;
+	inset: 0;
+}
+#STAGE canvas {
+	position: absolute;
+	inset: 0;
+	display: block;
+}
+.CSS3D-LAYER,
+.CSS3D-LAYER * {
+	pointer-events: none;
+}
+body.PANEL-HOT {
+	cursor: pointer;
+}
+.PROJECT {
+	position: relative;
+	width: var(--card-w);
+	aspect-ratio: var(--card-ratio);
+	box-shadow: var(--card-shadow);
+	overflow: hidden;
+	backface-visibility: hidden;
+	cursor: pointer;
+	transition:
+		box-shadow 450ms ease,
+		opacity 420ms ease;
+}
+#PROJECTS {
+	position: fixed;
+	inset: 0 auto auto 0;
+	visibility: hidden;
+	pointer-events: none;
+}
+#CURSOR {
+	position: fixed;
+	left: 0;
+	top: 0;
+	z-index: 17;
+	opacity: 0;
+	pointer-events: none;
+	transform: translate(-50%, -50%);
+	will-change: left, top;
+	transition: opacity 300ms;
+}
+@media (pointer: fine) {
+	body.FOCUS-OPEN {
+		cursor: none;
+	}
+	body.FOCUS-OPEN #CURSOR {
+		opacity: 1;
+	}
+}
+@media (pointer: coarse) {
+	#CURSOR {
+		left: auto !important;
+		top: auto !important;
+		right: 16px;
+		bottom: 18px;
+		transform: none;
+	}
+	body.FOCUS-OPEN #CURSOR {
+		opacity: 1;
+	}
+}
+body.FOCUS-OPEN .PROJECT.IS-HOT {
+	animation: none;
+	box-shadow: var(--card-shadow);
+}
+body.FOCUS-OPEN .PROJECT.IS-HOT img,
+body.FOCUS-OPEN .PROJECT.IS-HOT video {
+	transform: none;
+	filter: saturate(1.05) contrast(1.03);
+}
 @media (max-width: 1024px) {
-	#HOME section:nth-of-type(2) {
+	#HOME [role='tabpanel'] {
 		flex-direction: column;
 	}
 	#PROFILE,
@@ -325,12 +426,9 @@ img {
 	.QUOTE,
 	#OFFERS,
 	#OFFERS article,
-	#OFFERS section:nth-of-type(1),
-	#OFFERS section:nth-of-type(2),
-	#OFFERS section:nth-of-type(1) > div,
-	#OFFERS section:nth-of-type(2) > div,
-	#OFFERS section:nth-of-type(1) div div,
-	#OFFERS section:nth-of-type(2) div div,
+	#OFFERS section,
+	#OFFERS section > div,
+	#OFFERS section div div,
 	#PROFILE article,
 	#PROFILE article div,
 	#PROFILE article:nth-of-type(2) div,
@@ -373,14 +471,16 @@ img {
 	mark {
 		font-size: var(--RESPONSIVE-DISPLAY);
 	}
-	#OFFERS section:nth-of-type(1) > div,
-	#OFFERS section:nth-of-type(2) > div {
+	#OFFERS section > div {
 		flex-direction: column;
 		align-items: flex-start;
 	}
 	main {
 		padding: var(--PX5);
 		gap: 20svh;
+	}
+	#VIEW-STUDIO {
+		width: calc(100vw - var(--PX5) * 2);
 	}
 	#PROFILE article,
 	#OFFERS article,

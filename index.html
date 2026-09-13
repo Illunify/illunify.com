@@ -1,31 +1,6 @@
 <!doctype html>
-<!--
-	Genera CloudPanel PageSpeed settings valide per ottimizzare al MEGLIO POSSIBILE la webpage allegata, esempio:
-	pagespeed RewriteLevel CoreFilters;
-	pagespeed EnableFilters remove_quotes;
-	pagespeed DisableFilters prioritize_critical_css;
-	pagespeed EnableFilters recompress_images;
-	pagespeed EnableFilters responsive_images,resize_images;
-	pagespeed EnableFilters lazyload_images;
-	pagespeed EnableFilters sprite_images;
-	pagespeed EnableFilters insert_dns_prefetch;
-	pagespeed EnableFilters hint_preload_subresources;
-	pagespeed EnableFilters collapse_whitespace;
-	pagespeed EnableFilters dedup_inlined_images;
-	pagespeed EnableFilters inline_preview_images,resize_mobile_images;
-	pagespeed HttpCacheCompressionLevel 0;
-	pagespeed FetchHttps enable;
-	location ~ "^/pagespeed_static/" { }
-	location ~ "^/ngx_pagespeed_beacon$" { }
-	location ~ "\.pagespeed\.([a-z]\.)?[a-z]{2}\.[^.]{10}\.[^.]+" {
-		add_header "" "";
-	}
--->
 <html lang="en">
 	<head>
-		<!--
-			Basati sul contenuto fornito e genera <title>, <meta name="description">, <meta name="keywords">, <meta property="og:title">, <meta property="og:description"> (ottimizza al meglio questi tags per ottenere il miglior livello di SEO attualmente possibile):
-		-->
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="author" content="Placeholder" />
@@ -98,44 +73,25 @@
 		/>
 		<link rel="apple-touch-icon" href="/assets/apple-touch-icon.svg" />
 		<link rel="sitemap" type="application/xml" href="/sitemap.xml" />
-		<!--
-			Formatta il file HTML in allegato in modo che sia compliant con Schema.org (ottimizza al meglio Schema.org per ottenere il miglior livello di SEO attualmente possibile)
-		--></head>
-	<!--
-		...animazioni a livelli pari dei websites Awwwards
-	-->
+	</head>
 	<body>
-		<canvas id="gl"></canvas>
+		<canvas id="GL"></canvas>
 		<header role="banner">
 			<nav aria-label="Primary Navigation">
-				<a
-					href="#PROFILE"
-					aria-label="WHY US"
-					draggable="false"
-					data-water
-					data-n="25"
-					class="GLASS"
+				<a href="#PROFILE" aria-label="WHY US" draggable="false" class="GLASS"
 					>WHY US
 				</a>
-				<a
-					href="#HOME"
-					aria-label="OUR WORKS"
-					draggable="false"
-					data-water
-					data-n="25"
-					class="GLASS"
+				<a href="#HOME" aria-label="OUR WORKS" draggable="false" class="GLASS"
 					>OUR WORKS
 				</a>
 				<a
 					href="#OFFERS"
 					aria-label="OUR OFFERS"
 					draggable="false"
-					data-water
-					data-n="25"
 					class="GLASS"
 					>OUR OFFERS
 				</a>
-				<button data-water data-n="25">BOOK</button>
+				<button>BOOK</button>
 			</nav>
 		</header>
 		<div id="smooth-wrapper">
@@ -144,113 +100,148 @@
 					<section>
 						<article>
 							<h1>
-								We craft
-								<mark outline="web experiences">web experiences</mark><br />
-								&amp; <mark outline="designs">designs</mark> that convert
+								Be the one they <mark outline="remember">remember</mark><br />
+								Then the one they <mark outline="call">call</mark>
 							</h1>
 							<p>
-								Lorem ipsum tincidunt vel urna aliquam in justo pellentesque
-								consectetur faucibus in enim mollis et sit nulla odio lectus
-								faucibus urna eget lorem.
+								People make up their mind about you long before they fill in a
+								form. We help you look like the answer well before that moment,
+								and keep earning it after.
 							</p>
 						</article>
-						<button data-water data-n="25">BOOK</button>
+						<button>BOOK</button>
 					</section>
 					<section>
-						<article data-water data-n="100" class="GLASS">
-							<picture>
-								<source
-									media="(max-width: 1024px)"
-									srcset="/assets/placeholder-r.webp"
-									type="image/webp"
-								/>
-								<img
-									src="/assets/placeholder.webp"
-									alt="Placeholder"
-									loading="eager"
-									decoding="sync"
-									fetchpriority="high"
-									draggable="false"
-								/>
-							</picture>
-							<div>
-								<p>WEBSITE</p>
-								<cite>Alvise Rodella</cite>
-							</div>
-						</article>
-						<article data-water data-n="100" class="GLASS">
-							<picture>
-								<source
-									media="(max-width: 1024px)"
-									srcset="/assets/placeholder-r.webp"
-									type="image/webp"
-								/>
-								<img
-									src="/assets/placeholder.webp"
-									alt="Placeholder"
-									loading="eager"
-									decoding="sync"
-									fetchpriority="high"
-									draggable="false"
-								/>
-							</picture>
-							<div>
-								<p>WEBSITE</p>
-								<cite>Alvise Rodella</cite>
-							</div>
-						</article>
-						<article data-water data-n="100" class="GLASS">
-							<picture>
-								<source
-									media="(max-width: 1024px)"
-									srcset="/assets/placeholder-r.webp"
-									type="image/webp"
-								/>
-								<img
-									src="/assets/placeholder.webp"
-									alt="Placeholder"
-									loading="eager"
-									decoding="sync"
-									fetchpriority="high"
-									draggable="false"
-								/>
-							</picture>
-							<div>
-								<p>WEBSITE</p>
-								<cite>Alvise Rodella</cite>
-							</div>
-						</article>
+						<div role="tablist" aria-label="Works views">
+							<button
+								id="TAB-WORKS"
+								role="tab"
+								aria-controls="VIEW-WORKS"
+								aria-selected="true"
+							>
+								WORKS
+							</button>
+							<button
+								id="TAB-STUDIO"
+								role="tab"
+								aria-controls="VIEW-STUDIO"
+								aria-selected="false"
+								tabindex="-1"
+							>
+								3D
+							</button>
+						</div>
+						<div id="VIEW-WORKS" role="tabpanel" aria-labelledby="TAB-WORKS">
+							<article class="GLASS">
+								<picture>
+									<source
+										media="(max-width: 1024px)"
+										srcset="/assets/placeholder-r.webp"
+										type="image/webp"
+									/>
+									<img
+										src="/assets/placeholder.webp"
+										alt="Placeholder"
+										loading="eager"
+										decoding="sync"
+										fetchpriority="high"
+										draggable="false"
+									/>
+								</picture>
+								<div>
+									<p>WEBSITE</p>
+									<cite>Alvise Rodella</cite>
+								</div>
+							</article>
+							<article class="GLASS">
+								<picture>
+									<source
+										media="(max-width: 1024px)"
+										srcset="/assets/placeholder-r.webp"
+										type="image/webp"
+									/>
+									<img
+										src="/assets/placeholder.webp"
+										alt="Placeholder"
+										loading="eager"
+										decoding="sync"
+										fetchpriority="high"
+										draggable="false"
+									/>
+								</picture>
+								<div>
+									<p>WEBSITE</p>
+									<cite>Alvise Rodella</cite>
+								</div>
+							</article>
+							<article class="GLASS">
+								<picture>
+									<source
+										media="(max-width: 1024px)"
+										srcset="/assets/placeholder-r.webp"
+										type="image/webp"
+									/>
+									<img
+										src="/assets/placeholder.webp"
+										alt="Placeholder"
+										loading="eager"
+										decoding="sync"
+										fetchpriority="high"
+										draggable="false"
+									/>
+								</picture>
+								<div>
+									<p>WEBSITE</p>
+									<cite>Alvise Rodella</cite>
+								</div>
+							</article>
+						</div>
+					</section>
+					<section
+						id="VIEW-STUDIO"
+						role="tabpanel"
+						aria-labelledby="TAB-STUDIO"
+						hidden
+					>
+						<iframe
+							data-src="/3D"
+							title="STUDIO LIFE, a cinematic 3D project gallery"
+							allow="fullscreen"
+							loading="lazy"
+						></iframe>
 					</section>
 				</div>
 				<article class="QUOTE">
-					<p>Lorem ipsum tincidunt</p>
+					<p>MOST OF THE DECISION HAPPENS WITHOUT YOU</p>
 					<h2>
-						Your buyers don’t browse.<br />
-						<mark outline="The're looking">The're looking</mark>
-						for <mark outline="clarity">clarity</mark>,<br />
-						<mark outline="credibility">credibility</mark> &amp;
-						<mark outline="evidence">evidence</mark> you can deliver.<br />
-						Anything less
-						<mark outline="creates doubt">creates doubt</mark>
+						People don’t buy what they<br />
+						have to <mark outline="figure out">figure out</mark><br />
+						Every question you leave open<br />
+						is a reason to
+						<mark outline="choose someone else">choose someone else</mark>
 					</h2>
 				</article>
 				<div id="OFFERS">
-					<section data-water data-n="200" class="GLASS">
+					<section class="GLASS">
 						<div>
 							<article>
 								<h2>
-									Identity<br />
-									<mark outline="that connects">that connects</mark>
+									Positioning<br />
+									<mark outline="that sells for you">that sells for you</mark>
 								</h2>
 								<p>
-									Lorem ipsum tincidunt vel urna aliquam in justo pellentesque
-									consectetur faucibus in enim mollis et sit nulla odio lectus
-									faucibus urna eget lorem.
+									First we find the one thing you can honestly claim and nobody
+									else can. Then we put it where your buyers already look, so
+									your launch, your content and your search all pull the same
+									way.
 								</p>
 							</article>
 							<div>
-								<h3 data-water data-n="25">MOODBOARDS</h3>
-								<h3 data-water data-n="25">BRAND GUIDELINES</h3>
+								<h3>BRAND POSITIONING</h3>
+								<h3>GROWTH STRATEGY</h3>
+								<h3>LAUNCH STRATEGY</h3>
+								<h3>CONTENT PLANNING</h3>
+								<h3>SEARCH ENGINE OPTIMIZATION</h3>
 							</div>
 						</div>
 						<picture>
@@ -269,22 +260,64 @@
 							/>
 						</picture>
 					</section>
-					<section data-water data-n="200" class="GLASS">
+					<section class="GLASS">
+						<div>
+							<article>
+								<h2>
+									Identity<br />
+									<mark outline="that holds up">that holds up</mark>
+								</h2>
+								<p>
+									You want to feel like the safe choice and the interesting one
+									at the same time. We build the look, the motion and the rules
+									behind them, so your team can use it anywhere without it
+									falling apart.
+								</p>
+							</article>
+							<div>
+								<h3>CREATIVE DIRECTION</h3>
+								<h3>VISUAL IDENTITY</h3>
+								<h3>GRAPHIC DESIGN</h3>
+								<h3>3D &amp; MOTION DESIGN</h3>
+								<h3>DESIGN SYSTEMS</h3>
+							</div>
+						</div>
+						<picture>
+							<source
+								media="(max-width: 1024px)"
+								srcset="/assets/placeholder-r.webp"
+								type="image/webp"
+							/>
+							<img
+								src="/assets/placeholder.webp"
+								alt="Placeholder"
+								loading="eager"
+								decoding="sync"
+								fetchpriority="high"
+								draggable="false"
+							/>
+						</picture>
+					</section>
+					<section class="GLASS">
 						<div>
 							<article>
 								<h2>
 									Websites<br />
-									<mark outline="that convert">that convert</mark>
+									<mark outline="that close">that close</mark>
 								</h2>
 								<p>
-									Lorem ipsum tincidunt vel urna aliquam in justo pellentesque
-									consectetur faucibus in enim mollis et sit nulla odio lectus
-									faucibus urna eget lorem.
+									We build sites that load fast, get measured, and talk to the
+									tools you already pay for. Then we keep tuning until the
+									numbers move, and quietly automate the work nobody should be
+									doing by hand.
 								</p>
 							</article>
 							<div>
-								<h3 data-water data-n="25">MOODBOARDS</h3>
-								<h3 data-water data-n="25">BRAND GUIDELINES</h3>
+								<h3>WEBSITE DEVELOPMENT</h3>
+								<h3>ONLINE STORE DEVELOPMENT</h3>
+								<h3>PERFORMANCE OPTIMIZATION</h3>
+								<h3>AI TOOLS &amp; AUTOMATIONS</h3>
+								<h3>SYSTEM INTEGRATION</h3>
 							</div>
 						</div>
 						<picture>
@@ -319,13 +352,14 @@
 								/>
 							</svg>
 							<h4>
-								We are<br />
-								<mark outline="not an agency">not an agency</mark>
+								Senior<br />
+								<mark outline="hands only">hands only</mark>
 							</h4>
 						</div>
 						<p>
-							We’re a lean, independent studio doing good work for good people.
-							Without the overhead, handoffs, or hierarchy.
+							There’s no account manager in the middle and nothing gets passed
+							down the line. Whoever you meet on the first call is who builds
+							your work.
 						</p>
 					</article>
 					<article>
@@ -333,45 +367,37 @@
 							<p>+6</p>
 							<h4>
 								Years<br />
-								<mark outline="experience">experience</mark>
+								<mark outline="at it">at it</mark>
 							</h4>
 						</div>
 						<p>
-							We’re a lean, independent studio doing good work for good people.
-							Without the overhead, handoffs, or hierarchy.
+							Long enough to tell a decision that moves a number from one that
+							just eats a month.
 						</p>
 					</article>
 					<article>
 						<div>
 							<p>+42</p>
 							<h4>
-								Built<br />
-								<mark outline="projects">projects</mark>
+								Things<br />
+								<mark outline="shipped">shipped</mark>
 							</h4>
 						</div>
 						<p>
-							We’re a lean, independent studio doing good work for good people.
-							Without the overhead, handoffs, or hierarchy.
+							Brands, sites and stores taken from a blank page to live, then
+							judged on the job they were hired to do.
 						</p>
 					</article>
 				</section>
 				<article class="QUOTE">
 					<h2>
-						Your buyers don’t browse.<br />
-						<mark outline="The're looking">The're looking</mark>
-						for <mark outline="clarity">clarity</mark>,<br />
-						<mark outline="credibility">credibility</mark> &amp;
-						<mark outline="evidence">evidence</mark> you can deliver.<br />
-						Anything less
-						<mark outline="creates doubt">creates doubt</mark>
+						You’ve been <mark outline="compared">compared</mark> enough<br />
+						Let’s get you <mark outline="chosen">chosen</mark>
 					</h2>
-					<button data-water data-n="25">BOOK</button>
+					<button>BOOK</button>
 				</article>
 			</main>
 		</div>
-		<!--
-			Rimuovi (intendo codice inutilizzato), ottimizza la logica e riduci il più possibile il codice JS in modo da ottenere il massimo livello possibile di performance, mantieni però TUTTE le funzionalità (no comments e blank lines)
-		-->
 		<script defer type="text/javascript" src="/javascript/main.js"></script>
 		<script
 			src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"

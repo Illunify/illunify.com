@@ -1,1183 +1,901 @@
 gsap.registerPlugin(ScrollTrigger, ScrollSmoother);
-ScrollSmoother.get() || ScrollSmoother.create({ smooth: 1.5, smoothTouch: .15, normalizeScroll: true, ignoreMobileResize: true });
+ScrollSmoother.get() || ScrollSmoother.create({ smooth: 1.25, smoothTouch: .125, normalizeScroll: true, ignoreMobileResize: true });
 'use strict'
   ; (function () {
-    var canvas = document.getElementById('gl')
+    var canvas = document.getElementById('GL')
     var gl = canvas.getContext('webgl2', {
-      alpha: false,
+      alpha: true,
+      premultipliedAlpha: false,
       depth: false,
+      stencil: false,
       antialias: false,
       powerPreference: 'high-performance',
-      desynchronized: true
     })
     if (!gl) return
-    var F32 = !!(
-      gl.getExtension('EXT_color_buffer_float') &&
-      gl.getExtension('OES_texture_float_linear')
-    )
-    if (!F32 && !gl.getExtension('EXT_color_buffer_half_float')) return
-    function clamp(v, lo, hi) {
-      return Math.min(Math.max(v, lo), hi)
+    if (!gl.getExtension('EXT_color_buffer_float')) return
+    var DS = { ...document.body.dataset }
+    new URLSearchParams(location.search).forEach(function (v, k) {
+      DS[k.replace(/-([a-z0-9])/g, function (_, c) { return c.toUpperCase() })] = v
+    })
+    var dnum = function (k, f) {
+      var v = parseFloat(DS[k])
+      return Number.isFinite(v) ? v : f
     }
-    var VERT = `#version 300 es
-out vec2 vUv;
-void main(){
-vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));
-vUv=p;
-gl_Position=vec4(p*2.0-1.0,0.0,1.0);
-}`
-    var FRAG_SIM = `#version 300 es
+    var CSSV = getComputedStyle(document.documentElement)
+    var HEX = function (v, f) {
+      v = String(v == null ? '' : v).trim()
+      return /^#([A-Fa-f\d]{3}|[A-Fa-f\d]{6})$/.test(v) ? v : f
+    }
+    var rgb = function (h) {
+      h = h.slice(1)
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+      var n = parseInt(h, 16)
+      return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map(function (c) {
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+      })
+    }
+    var tok = function (n, f) { return rgb(HEX(CSSV.getPropertyValue(n), f)) }
+    var LN = tok('--LIQUID', '#c5c5c5')
+    var luma = function (c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] }
+    var BGL = luma(tok('--BACKGROUND', '#e0e0e0'))
+    var TXL = luma(tok('--COLOR', '#000'))
+    var MINL = TXL < BGL ? Math.min(1, Math.max(0, Math.max(1, dnum('liquidTextContrast', 7)) * (TXL + 0.05) - 0.05 + 0.005)) : 0
+    var LAYER = /^(1|top|over|front)$/i.test(String(DS.liquidLayer || '')) ? 1 : 0
+    canvas.style.zIndex = LAYER ? '30' : '0'
+    canvas.style.mixBlendMode = 'normal'
+    canvas.style.pointerEvents = LAYER ? 'none' : 'auto'
+    var RES = Math.max(1, dnum('liquidRes', 4))
+    var SCALES = Math.max(1, Math.min(12, Math.round(dnum('liquidScales', 11))))
+    var ASTEP = Math.max(1, Math.min(8, Math.round(dnum('liquidAdvSteps', 3))))
+    var STEPS = Math.max(1, Math.min(12, Math.round(dnum('glassSteps', 10))))
+    var QUIET = Math.max(0.1, dnum('liquidQuiet', 5.5))
+    var FPS = 60
+    var LIFE = Math.max(0.05, dnum('liquidSmearLife', 1.6))
+    var VTAU = Math.max(0.05, dnum('liquidVelLife', 0.6))
+    var VLAP = Math.max(0, dnum('liquidVelLap', 0.02))
+    var DAMPOVR = DS.liquidDamp !== undefined ? parseFloat(DS.liquidDamp) : null
+    var VS = `#version 300 es
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`
+    var HEAD = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-in vec2 vUv;
-out vec4 outState;
-uniform sampler2D uState;
-uniform vec2 uAspect;
-uniform float uK;
-uniform float uDampV;
-uniform float uDampH;
-uniform float uNu;
-uniform float uRadius;
-uniform float uAmp;
-uniform float uEdge;
-uniform float uDT;
-uniform vec4 uSA[6];
+out vec4 O;
+uniform vec2 uSim;
+uniform float uMaxLod;
+float reduce(mat3 a,mat3 b){mat3 p=matrixCompMult(a,b);return p[0][0]+p[0][1]+p[0][2]+p[1][0]+p[1][1]+p[1][2]+p[2][0]+p[2][1]+p[2][2];}
+vec2 normz(vec2 x){return x==vec2(0.0)?vec2(0.0):normalize(x);}
+vec2 cl0(vec2 p){return clamp(p,0.0,1.0);}
+`
+    var FB = HEAD + `#define SCALES ${SCALES}
+uniform sampler2D uA;
+uniform float uTurbIso,uCurlIso,uShift;
 void main(){
-vec2 uv=vUv;
-vec2 st=texture(uState,uv).rg;
-float h=st.x;
-float v=st.y;
-float hL=textureOffset(uState,uv,ivec2(-1,0)).r;
-float hR=textureOffset(uState,uv,ivec2(1,0)).r;
-float hD=textureOffset(uState,uv,ivec2(0,-1)).r;
-float hU=textureOffset(uState,uv,ivec2(0,1)).r;
-float hLD=textureOffset(uState,uv,ivec2(-1,-1)).r;
-float hRD=textureOffset(uState,uv,ivec2(1,-1)).r;
-float hLU=textureOffset(uState,uv,ivec2(-1,1)).r;
-float hRU=textureOffset(uState,uv,ivec2(1,1)).r;
-float lap=0.5*(hL+hR+hD+hU)+0.25*(hLD+hRD+hLU+hRU)-3.0*h;
-v+=uK*lap;
-float b=min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y));
-float sp=smoothstep(0.0,uEdge,b);
-v=v*uDampV*mix(0.955,1.0,sp);
-h=(h+v+uNu*lap)*uDampH*mix(0.985,1.0,sp);
-vec2 P=uv*uAspect;
-float r2=uRadius*uRadius;
-float ir2=1.0/r2;
-float iRad=1.0/uRadius;
-float lim2=r2*10.0;
-for(int i=0;i<3;i++){
-vec4 ag=uSA[i+3];
-if(ag.w<=0.0) continue;
-vec4 sg=uSA[i];
-vec2 ba=sg.zw-sg.xy;
-vec2 pa=P-sg.xy;
-float t=clamp(dot(pa,ba)/max(dot(ba,ba),1e-7),0.0,1.0);
-vec2 rel=pa-ba*t;
-float d2=dot(rel,rel);
-if(d2>lim2) continue;
-float g=exp(-d2*ir2);
-float spd=min(length(ag.xy),4.0);
-vec2 vdir=spd>1e-4?ag.xy/spd:vec2(0.0);
-float dip=clamp(dot(rel,vdir)*iRad,-2.0,2.0);
-h+=uAmp*ag.w*g*(-0.25+1.35*dip)*spd*uDT;
-float pr=ag.z*ag.w;
-if(pr>0.0) h=mix(h,-uAmp*0.025*g,clamp(g*pr*uDT*25.0,0.0,0.5));
-}
-outState=vec4(clamp(h,-1.5,1.5),clamp(v,-1.5,1.5),0.0,1.0);
-}`
-    var FRAG_RENDER = `#version 300 es
+vec2 uv=gl_FragCoord.xy/uSim+vec2(0.0,uShift);
+mat3 txx=(2.0-uTurbIso)*mat3(0.125,0.25,0.125,-0.25,-0.5,-0.25,0.125,0.25,0.125);
+mat3 tyy=(2.0-uTurbIso)*mat3(0.125,-0.25,0.125,0.25,-0.5,0.25,0.125,-0.25,0.125);
+mat3 txy=uTurbIso*mat3(0.25,0.0,-0.25,0.0,0.0,0.0,-0.25,0.0,0.25);
+float c0=uCurlIso;
+mat3 cx=mat3(c0,1.0,c0,0.0,0.0,0.0,-c0,-1.0,-c0);
+mat3 cy=mat3(c0,0.0,-c0,1.0,0.0,-1.0,c0,0.0,-c0);
+float nrm=8.8/(4.0+8.0*uCurlIso);
+vec2 v=vec2(0.0);
+float curl=0.0,tw=0.0,cw=0.0;
+for(int i=0;i<SCALES;i++){
+float mip=min(float(i),uMaxLod);
+vec2 tx=exp2(mip)/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+vec2 d=textureLod(uA,cl0(uv+t.ww),mip).xy;
+vec2 dn=textureLod(uA,cl0(uv+t.wy),mip).xy;
+vec2 de=textureLod(uA,cl0(uv+t.xw),mip).xy;
+vec2 ds=textureLod(uA,cl0(uv+t.wz),mip).xy;
+vec2 dw=textureLod(uA,cl0(uv-t.xw),mip).xy;
+vec2 dnw=textureLod(uA,cl0(uv-t.xz),mip).xy;
+vec2 dsw=textureLod(uA,cl0(uv-t.xy),mip).xy;
+vec2 dne=textureLod(uA,cl0(uv+t.xy),mip).xy;
+vec2 dse=textureLod(uA,cl0(uv+t.xz),mip).xy;
+mat3 mx=mat3(dnw.x,dn.x,dne.x,dw.x,d.x,de.x,dsw.x,ds.x,dse.x);
+mat3 my=mat3(dnw.y,dn.y,dne.y,dw.y,d.y,de.y,dsw.y,ds.y,dse.y);
+float twf=1.0;
+float cwf=1.0/float(i+1);
+v+=twf*vec2(reduce(txx,mx)+reduce(txy,my),reduce(tyy,my)+reduce(txy,mx));
+curl+=cwf*(reduce(cx,mx)+reduce(cy,my));
+tw+=twf;
+cw+=cwf;}
+float sw=clamp(abs(uShift)*2.0,0.004,0.08);
+O=vec4(float(SCALES)*v/tw,0.0,nrm*curl/cw)*smoothstep(0.0,sw,uShift<0.0?uv.y:1.0-uv.y);}`
+    var FC = HEAD + `#define SCALES ${SCALES}
+uniform sampler2D uB;
+uniform float uConfIso;
+void main(){
+vec2 uv=gl_FragCoord.xy/uSim;
+float k0=uConfIso,k1=1.0-2.0*uConfIso;
+mat3 cx=mat3(-k0,-k1,-k0,0.0,0.0,0.0,k0,k1,k0);
+mat3 cy=mat3(-k0,0.0,k0,-k1,0.0,k1,-k0,0.0,k0);
+vec2 v=vec2(0.0);
+float wc=0.0;
+for(int i=0;i<SCALES;i++){
+float mip=min(float(i),uMaxLod);
+vec2 tx=exp2(mip)/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+float d=abs(textureLod(uB,cl0(uv+t.ww),mip).w);
+float dn=abs(textureLod(uB,cl0(uv+t.wy),mip).w);
+float de=abs(textureLod(uB,cl0(uv+t.xw),mip).w);
+float ds=abs(textureLod(uB,cl0(uv+t.wz),mip).w);
+float dw=abs(textureLod(uB,cl0(uv-t.xw),mip).w);
+float dnw=abs(textureLod(uB,cl0(uv-t.xz),mip).w);
+float dsw=abs(textureLod(uB,cl0(uv-t.xy),mip).w);
+float dne=abs(textureLod(uB,cl0(uv+t.xy),mip).w);
+float dse=abs(textureLod(uB,cl0(uv+t.xz),mip).w);
+mat3 mc=mat3(dnw,dn,dne,dw,d,de,dsw,ds,dse);
+float curl=textureLod(uB,cl0(uv+t.ww),mip).w;
+v+=curl*normz(vec2(reduce(cx,mc),reduce(cy,mc)));
+wc+=1.0;}
+O=vec4(v/wc,0.0,0.0);}`
+    var FD = HEAD + `#define SCALES ${SCALES}
+uniform sampler2D uA,uP;
+uniform float uPoisIso,uShift;
+void main(){
+vec2 uv=gl_FragCoord.xy/uSim+vec2(0.0,uShift);
+float k0=uPoisIso,k1=1.0-2.0*uPoisIso;
+mat3 px=mat3(k0,0.0,-k0,k1,0.0,-k1,k0,0.0,-k0);
+mat3 py=mat3(-k0,-k1,-k0,0.0,0.0,0.0,k0,k1,k0);
+mat3 gs=mat3(0.0625,0.125,0.0625,0.125,0.25,0.125,0.0625,0.125,0.0625);
+vec2 v=vec2(0.0);
+float wc=0.0;
+for(int i=0;i<SCALES;i++){
+float mip=min(float(i),uMaxLod);
+vec2 tx=exp2(mip)/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+vec2 d=textureLod(uA,cl0(uv+t.ww),mip).xy;
+vec2 dn=textureLod(uA,cl0(uv+t.wy),mip).xy;
+vec2 de=textureLod(uA,cl0(uv+t.xw),mip).xy;
+vec2 ds=textureLod(uA,cl0(uv+t.wz),mip).xy;
+vec2 dw=textureLod(uA,cl0(uv-t.xw),mip).xy;
+vec2 dnw=textureLod(uA,cl0(uv-t.xz),mip).xy;
+vec2 dsw=textureLod(uA,cl0(uv-t.xy),mip).xy;
+vec2 dne=textureLod(uA,cl0(uv+t.xy),mip).xy;
+vec2 dse=textureLod(uA,cl0(uv+t.xz),mip).xy;
+float p=textureLod(uP,cl0(uv+t.ww),mip).x;
+float pn=textureLod(uP,cl0(uv+t.wy),mip).x;
+float pe=textureLod(uP,cl0(uv+t.xw),mip).x;
+float ps=textureLod(uP,cl0(uv+t.wz),mip).x;
+float pw=textureLod(uP,cl0(uv-t.xw),mip).x;
+float pnw=textureLod(uP,cl0(uv-t.xz),mip).x;
+float psw=textureLod(uP,cl0(uv-t.xy),mip).x;
+float pne=textureLod(uP,cl0(uv+t.xy),mip).x;
+float pse=textureLod(uP,cl0(uv+t.xz),mip).x;
+mat3 mx=mat3(dnw.x,dn.x,dne.x,dw.x,d.x,de.x,dsw.x,ds.x,dse.x);
+mat3 my=mat3(dnw.y,dn.y,dne.y,dw.y,d.y,de.y,dsw.y,ds.y,dse.y);
+mat3 mp=mat3(pnw,pn,pne,pw,p,pe,psw,ps,pse);
+float w=1.0/float(i+1);
+wc+=w;
+v+=w*vec2(reduce(px,mx)+reduce(py,my),reduce(gs,mp));}
+v/=wc;
+vec2 t0=1.0/uSim;
+vec4 q0=vec4(t0,-t0.y,0.0);
+float sw=clamp(abs(uShift)*2.0,0.004,0.08);
+O=vec4(v.x+v.y)*smoothstep(0.0,sw,uShift<0.0?uv.y:1.0-uv.y);}`
+    var FA = HEAD + `#define ASTEP ${ASTEP}
+uniform sampler2D uA,uB,uC,uP;
+uniform vec4 uSeg;
+uniform float uAdvScale,uAdvTurb,uAdvConf,uAdvVel,uAdvDiv,uVelTurb,uVelConf,uVelLap,uDivMin,uDamp,uVelScale,uForce,uRadius,uActive,uShift;
+vec2 diffP(vec2 uv){
+vec2 tx=1.0/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+vec4 dn=texture(uP,cl0(uv+t.wy));
+vec4 de=texture(uP,cl0(uv+t.xw));
+vec4 ds=texture(uP,cl0(uv+t.wz));
+vec4 dw=texture(uP,cl0(uv-t.xw));
+vec4 dnw=texture(uP,cl0(uv-t.xz));
+vec4 dsw=texture(uP,cl0(uv-t.xy));
+vec4 dne=texture(uP,cl0(uv+t.xy));
+vec4 dse=texture(uP,cl0(uv+t.xz));
+return vec2(0.5*(de.x-dw.x)+0.25*(dne.x-dnw.x+dse.x-dsw.x),0.5*(dn.x-ds.x)+0.25*(dne.x+dnw.x-dse.x-dsw.x));}
+vec2 lapV(vec2 uv){
+const float K0=-20.0/6.0,K1=4.0/6.0,K2=1.0/6.0;
+vec2 tx=1.0/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+vec2 d=texture(uA,cl0(uv+t.ww)).xy;
+vec2 dn=texture(uA,cl0(uv+t.wy)).xy;
+vec2 de=texture(uA,cl0(uv+t.xw)).xy;
+vec2 ds=texture(uA,cl0(uv+t.wz)).xy;
+vec2 dw=texture(uA,cl0(uv-t.xw)).xy;
+vec2 dnw=texture(uA,cl0(uv-t.xz)).xy;
+vec2 dsw=texture(uA,cl0(uv-t.xy)).xy;
+vec2 dne=texture(uA,cl0(uv+t.xy)).xy;
+vec2 dse=texture(uA,cl0(uv+t.xz)).xy;
+return K0*d+K1*(de+dw+dn+ds)+K2*(dne+dnw+dse+dsw);}
+vec2 svSeg(vec2 p,vec2 a,vec2 b){vec2 ab=b-a,ap=p-a;return ap-ab*clamp(dot(ap,ab)/max(dot(ab,ab),1e-9),0.0,1.0);}
+void main(){
+vec2 uv=gl_FragCoord.xy/uSim;
+vec2 tx=1.0/uSim;
+vec2 sh=vec2(0.0,uShift);
+float sw=clamp(abs(uShift)*2.0,0.004,0.08);
+float syy=uv.y+uShift;
+float sg=smoothstep(0.0,sw,uShift<0.0?syy:1.0-syy);
+vec2 turb=vec2(0.0),conf=vec2(0.0),dv=vec2(0.0),dvel=vec2(0.0),off=vec2(0.0),lp=vec2(0.0);
+vec4 vel=vec4(0.0),adv=vec4(0.0);
+for(int i=0;i<ASTEP;i++){
+turb=texture(uB,cl0(uv+tx*off)).xy;
+conf=texture(uC,cl0(uv+tx*off)).xy;
+vel=texture(uA,cl0(uv+sh+tx*off))*sg;
+off=(float(i+1)/float(ASTEP))*-uAdvScale*(uAdvVel*vel.xy+uAdvTurb*turb-uAdvConf*conf+uAdvDiv*dv);
+dv=diffP(uv+tx*off);
+lp=lapV(uv+sh+tx*off)*sg;
+adv+=texture(uA,cl0(uv+sh+tx*off))*sg;
+dvel+=uVelLap*lp+uVelTurb*turb+uVelConf*conf-uDamp*vel.xy-uDivMin*dv;}
+adv/=float(ASTEP);
+dvel/=float(ASTEP);
+vec2 nv=adv.xy+uVelScale*dvel;
+if(uActive>0.5){
+vec2 asp=vec2(uSim.x/uSim.y,1.0);
+vec2 q=svSeg(uv*asp,uSeg.xy*asp,uSeg.zw*asp);
+float g=exp(max(-12.0,-dot(q,q)/(uRadius*uRadius)));
+vec2 dir=normz((uSeg.zw-uSeg.xy)*asp);
+nv+=uVelScale*uForce*g*dir;}
+O=vec4(nv,off);}`
+    var FE = HEAD + `uniform sampler2D uA,uE,uPage;
+uniform vec4 uSeg;
+uniform vec3 uFall,uBase;
+uniform vec4 uORect[64];
+uniform vec3 uOCol[64];
+uniform float uDye,uInk,uRadius,uActive,uPickup,uHasPage,uPageY,uPageS,uShift,uObjK,uONR,uORad,uOSoft,uReflK,uReflA,uReflH;
+uniform vec2 uCanv;
+float sdSeg(vec2 p,vec2 a,vec2 b){vec2 ab=b-a,ap=p-a;return length(ap-ab*clamp(dot(ap,ab)/max(dot(ab,ab),1e-9),0.0,1.0));}
+void main(){
+vec2 uv=gl_FragCoord.xy/uSim;
+vec2 tx=1.0/uSim;
+vec2 off=texture(uA,uv).zw;
+float sy=uv.y+uShift;
+float sw=clamp(abs(uShift)*2.0,0.004,0.08);
+vec4 e=texture(uE,cl0(uv+vec2(0.0,uShift)+tx*off))*uDye*smoothstep(0.0,sw,uShift<0.0?sy:1.0-sy);
+if(uHasPage>0.0&&e.a>1e-4){
+vec3 cur=e.rgb/e.a;
+vec2 pv=uv+texture(uA,uv).xy*uReflK;
+vec3 pg=texture(uPage,clamp(vec2(pv.x,uPageY+(1.0-pv.y)*uPageS),vec2(0.001),vec2(0.999))).rgb;
+float ob=clamp(length(pg-uBase)*uObjK,0.0,1.0);
+vec3 tgt=mix(uFall,pg,ob);
+if(uONR>0.5){
+vec2 fc=pv*uCanv;
+float dm=1e9;
+vec3 ec=uFall;
+for(int i=0;i<64;i++){
+if(float(i)>=uONR)break;
+vec2 qq=abs(fc-uORect[i].xy)-uORect[i].zw+uORad;
+float d2=min(max(qq.x,qq.y),0.0)+length(max(qq,vec2(0.0)))-uORad;
+if(d2<dm){dm=d2;ec=uOCol[i];}}
+tgt=mix(tgt,ec,clamp((1.0-smoothstep(-uOSoft,uOSoft,dm))*mix(1.0,1.0-ob,uReflH)*uReflA,0.0,1.0));}
+e.rgb=mix(cur,tgt,uPickup*uHasPage)*e.a;}
+if(uActive>0.5){
+vec2 asp=vec2(uSim.x/uSim.y,1.0);
+float d=sdSeg(uv*asp,uSeg.xy*asp,uSeg.zw*asp);
+float g=exp(max(-12.0,-(d*d)/(uRadius*uRadius)));
+float a=g*uInk*(1.0-e.a);
+e.rgb+=uFall*a;
+e.a+=a;}
+O=e;}`
+    var FSH = HEAD + `#define STEPS ${STEPS}
+uniform sampler2D uA,uP;
+uniform float uBump,uTime,uOcc,uGain,uPunch,uFrost;
+float softmax(float a,float b,float k){return log(exp(k*a)+exp(k*b))/k;}
+float softmin(float a,float b,float k){return -log(exp(-k*a)+exp(-k*b))/k;}
+float softclamp(float a,float b,float x,float k){return (softmin(b,softmax(a,x,k),k)+softmax(a,softmin(b,x,k),k))/2.0;}
+float G1V(float d,float k){return 1.0/(d*(1.0-k)+k);}
+float ggx(vec3 n,vec3 v,vec3 l,float rough,float f0){
+float a=rough*rough;
+vec3 h=normalize(v+l);
+float dnl=clamp(dot(n,l),0.0,1.0);
+float dnv=clamp(dot(n,v),0.0,1.0);
+float dnh=clamp(dot(n,h),0.0,1.0);
+float dlh=clamp(dot(l,h),0.0,1.0);
+float as=a*a;
+float den=dnh*dnh*(as-1.0)+1.0;
+float dd=as/(3.14159*den*den);
+dlh=pow(1.0-dlh,5.0);
+float f=f0+(1.0-f0)*dlh;
+return dnl*dd*f*G1V(dnl,a)*G1V(dnv,a);}
+float shade(float m,float sp,float oc){
+float df=softclamp(0.0,1.0,m+0.5,2.0);
+float f=df+4.0*mix(sp,1.5*df*sp,0.3);
+f=softclamp(0.0,1.0,4.5*(f-0.5)+0.5,3.0);
+return mix(1.0,oc,uOcc)*f;}
+float P(vec2 uv,vec2 d,float mip){return -textureLod(uP,cl0(uv+d),mip).x;}
+vec2 diffP(vec2 uv,float mip){
+vec2 tx=exp2(mip)/uSim;
+vec4 t=vec4(tx,-tx.y,0.0);
+float dn=P(uv,t.wy,mip),de=P(uv,t.xw,mip);
+float ds=P(uv,t.wz,mip),dw=P(uv,-t.xw,mip),dnw=P(uv,-t.xz,mip);
+float dsw=P(uv,-t.xy,mip),dne=P(uv,t.xy,mip),dse=P(uv,t.xz,mip);
+return vec2(0.5*(de-dw)+0.25*(dne-dnw+dse-dsw),0.5*(dn-ds)+0.25*(dne+dnw-dse-dsw));}
+void main(){
+vec2 uv=gl_FragCoord.xy/uSim;
+vec2 dxy=vec2(0.0);
+float occ=0.0;
+float d0=P(uv,vec2(0.0),0.0);
+for(int m=1;m<=STEPS;m++){
+float fm=min(float(m),uMaxLod);
+dxy+=(1.0/pow(2.0,float(m)))*diffP(uv,max(fm-1.0,0.0));
+occ+=softclamp(-2.0,2.0,d0-P(uv,vec2(0.0),fm),1.0)/pow(1.5,float(m));}
+dxy/=float(STEPS);
+occ=pow(max(0.0,softclamp(0.2,0.8,100.0*occ+0.5,1.0)),0.5);
+vec3 sp=vec3(uv-0.5,0.0);
+vec3 lpos=vec3(cos(uTime*0.5)*0.5,sin(uTime*0.5)*0.5,-0.5);
+vec3 ld=normalize(lpos-sp);
+vec3 avd=reflect(normalize(vec3(uBump*dxy,-1.0)),vec3(0.0,1.0,0.0));
+float fr=uFrost*(1.0-exp(-length(dxy)*uBump*0.03));
+float spec=ggx(avd,vec3(0.0,1.0,0.0),ld,0.1+fr*0.55,0.1);
+spec=(log(1001.0)/1000.0)*log(1.0+1000.0*spec);
+vec4 a=texture(uA,uv);
+float f=shade(6.0*uGain*length(a.xy)+fr*0.45,spec,occ);
+float f0=shade(0.0,0.0,pow(max(0.0,softclamp(0.2,0.8,0.5,1.0)),0.5));
+O=vec4(clamp(abs(f-f0)*uPunch,0.0,1.0),occ,0.0,0.0);}`
+    var FPR = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-in vec2 vUv;
-out vec4 fragColor;
-uniform sampler2D uState;
-uniform vec2 uAspect;
-uniform float uTime;
-uniform float uGradScale;
-uniform float uEta;
-uniform float uRough;
-uniform float uWide;
-uniform float uSheen;
-uniform float uGloss;
-uniform float uFrost;
-const float PI=3.14159265359;
-const vec3 LGT[4]=vec3[4](vec3(0.6,0.0,0.8),vec3(-0.6,0.0,0.8),vec3(0.0,0.6,0.8),vec3(0.0,-0.6,0.8));
-const float C_BOX=0.7421;
-const vec3 C_FROST=vec3(0.655,0.81,0.935);
-const vec3 C_WATER=vec3(0.6035);
-float hash21(vec2 p){
-vec3 q=fract(p.xyx*vec3(0.1031,0.1030,0.0973));
-q+=dot(q,q.yzx+33.33);
-return fract((q.x+q.y)*q.z);
-}
-float skyCol(vec3 r){
-float c=mix(C_BOX*0.85,1.05,pow(clamp(r.z*0.5+0.5,0.0,1.0),1.5));
-float g=0.0;
-for(int i=0;i<4;i++){
-float s=max(dot(r,LGT[i]),0.0);
-g+=pow(s,120.0)*0.5+0.1*pow(s,15.0);
-}
-return c+g*0.25;
-}
-float ggx(float NoH,float NoV,float NoL,float rough,float F){
-float a=max(rough,0.015);
-a=a*a;
-float a2=a*a;
-float dd=NoH*NoH*(a2-1.0)+1.0;
-float k=a*0.5;
-float G=(NoV/(NoV*(1.0-k)+k))*(NoL/(NoL*(1.0-k)+k));
-return a2/(PI*dd*dd)*G*F/(4.0*NoV*max(NoL,1e-4))*NoL;
-}
+out vec4 O;
+uniform sampler2D uSH,uE;
+uniform vec2 uRes,uSim;
+uniform float uOpacity,uThr,uSnap,uWaveSoft,uWaveLod,uBright,uRim,uFrost,uEdgeG,uMinL,uBgL;
+uniform vec3 uGlass,uLiq;
 void main(){
-vec2 uv=vUv;
-float h=texture(uState,uv).r;
-float hL=textureOffset(uState,uv,ivec2(-2,0)).r;
-float hR=textureOffset(uState,uv,ivec2(2,0)).r;
-float hD=textureOffset(uState,uv,ivec2(0,-2)).r;
-float hU=textureOffset(uState,uv,ivec2(0,2)).r;
-vec2 grad=vec2(hR-hL,hU-hD)*uGradScale;
-float eta=h*uEta;
-vec3 N=normalize(vec3(-grad,1.0));
-vec3 V=normalize(vec3(-(uv-0.5)*uAspect*0.25,1.0));
-vec3 I=-V;
-float NoV=clamp(dot(N,V),1e-4,1.0);
-const float F0=0.045;
-float Fr=F0+(1.0-F0)*pow(1.0-NoV,5.0);
-float wave=clamp(abs(eta)*3.0+length(grad)*0.15,0.0,1.0);
-vec3 col=mix(mix(vec3(C_BOX),C_WATER,wave),vec3(skyCol(reflect(I,N))),Fr);
-float aaR=clamp(length(fwidth(grad))*0.45,0.0,0.35);
-float rr=sqrt(uRough*uRough+aaR*aaR);
-float rw=sqrt(uWide*uWide+aaR*aaR);
-for(int i=0;i<4;i++){
-vec3 Li=LGT[i];
-vec3 Hi=normalize(V+Li);
-float NoHi=max(dot(N,Hi),0.0);
-float NoLi=max(dot(N,Li),0.0);
-float Fi=F0+(1.0-F0)*pow(1.0-max(dot(V,Hi),0.0),5.0);
-col+=ggx(NoHi,NoV,NoLi,rw,Fi)*uSheen+ggx(NoHi,NoV,NoLi,rr,Fi)*uGloss;
-}
-col=mix(col,C_FROST,uFrost*smoothstep(0.15,1.35,length(grad)));
-col=mix(col,1.0-exp(-col),smoothstep(0.75,1.5,col));
+vec2 uv=gl_FragCoord.xy/uRes;
+vec4 s=texture(uSH,uv);
+vec4 e=texture(uE,uv);
+float ew=max(1.0-uSnap,0.002)*uThr;
+vec2 et=uWaveSoft/uSim;
+float gate=0.0;
+for(int gy=-2;gy<=2;gy++)for(int gx=-2;gx<=2;gx++){
+vec2 o=vec2(float(gx),float(gy))*et;
+gate+=smoothstep(uThr-ew,uThr+ew,textureLod(uE,uv+o,uWaveLod).a)*float((3-abs(gx))*(3-abs(gy)));}
+gate=clamp((gate*0.0123456790-0.5)*uEdgeG+0.5,0.0,1.0);
+gate=gate*gate*(3.0-2.0*gate);
+float al=gate*uOpacity*clamp(e.a/uThr,0.0,1.0);
+vec3 ecol=mix(uLiq,e.rgb/max(e.a,1e-4),smoothstep(0.0,uThr,e.a));
+vec3 col=mix(ecol,uGlass,clamp(4.0*gate*(1.0-gate)*uRim+s.x*s.x*gate*uFrost,0.0,1.0));
+float need=clamp((uMinL-(1.0-al)*uBgL)/max(al,1e-4),0.0,1.0);
+col=min(col*max(1.0,need/max(dot(col,vec3(0.2126,0.7152,0.0722)),1e-5)),vec3(1.0));
 col=mix(col*12.92,1.055*pow(max(col,vec3(0.0)),vec3(1.0/2.4))-0.055,step(vec3(0.0031308),col));
-float ft=fract(uTime);
-col+=(hash21(gl_FragCoord.xy+ft*55.0)+hash21(gl_FragCoord.yx+ft*30.0+10.0)-1.0)*0.00395;
-fragColor=vec4(col,1.0);
-}`
-    function build(fsrc, names, out) {
-      var p = gl.createProgram()
-      for (const d of [
-        [gl.VERTEX_SHADER, VERT],
-        [gl.FRAGMENT_SHADER, fsrc]
-      ]) {
-        var sh = gl.createShader(d[0])
-        gl.shaderSource(sh, d[1])
-        gl.compileShader(sh)
-        gl.attachShader(p, sh)
-        gl.deleteShader(sh)
+col=min(col*uBright,vec3(1.0));
+float dth=(fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-0.5)/255.0;
+O=vec4(col+dth,clamp(al+dth*min(1.0,al*255.0),0.0,1.0));}`
+    function make(src, type) {
+      var s = gl.createShader(type)
+      gl.shaderSource(s, src)
+      gl.compileShader(s)
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s))
+        return null
       }
+      return s
+    }
+    function link(fsrc) {
+      var v = make(VS, gl.VERTEX_SHADER)
+      var f = make(fsrc, gl.FRAGMENT_SHADER)
+      if (!v || !f) return null
+      var p = gl.createProgram()
+      gl.attachShader(p, v)
+      gl.attachShader(p, f)
       gl.linkProgram(p)
       if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
         console.error(gl.getProgramInfoLog(p))
         return null
       }
-      for (const nm of names) out[nm] = gl.getUniformLocation(p, nm)
       return p
     }
-    var S = {},
-      R = {}
-    var pSim = null,
-      pRen = null
-    var AMP = 2.5,
-      STEEP = 0.25,
-      WARP = 400,
-      DEPTH = 0.5,
-      IOR_ETA = 0.65
-    var DECAY = 0.985,
-      DAMP_H = 0.9985,
-      WHEEL_FADE = 10,
-      SLEEP_AFTER = 2.5,
-      SHAPE_STEP = 0.02
-    var NU = 0.25,
-      RADIUS = 0.05,
-      K_WAVE = 0.35,
-      RATE = 300,
-      TELEPORT = 30,
-      SIM_H = 360,
-      CH = 70
-    var CPU_REL = (CH / SIM_H) * (CH / SIM_H)
-    function setConst(prog, loc, map) {
-      gl.useProgram(prog)
-      gl.uniform1i(loc.uState, 0)
-      for (const k of Object.keys(map)) gl.uniform1f(loc[k], map[k])
+    var pB = link(FB), pC = link(FC), pD = link(FD), pA = link(FA), pE = link(FE), pS = link(FSH), pR = link(FPR)
+    if (!pR) return
+    var OK = !!(pB && pC && pD && pA && pE && pS)
+    gl.bindVertexArray(gl.createVertexArray())
+    function locs(p, names) {
+      var o = {}
+      for (const n of names) o[n] = gl.getUniformLocation(p, n)
+      return o
     }
-    function initGL() {
-      gl.getExtension('EXT_color_buffer_float')
-      gl.getExtension('OES_texture_float_linear')
-      gl.getExtension('EXT_color_buffer_half_float')
-      pSim = build(
-        FRAG_SIM,
-        [
-          'uState',
-          'uAspect',
-          'uK',
-          'uDampV',
-          'uDampH',
-          'uNu',
-          'uRadius',
-          'uAmp',
-          'uEdge',
-          'uDT',
-          'uSA'
-        ],
-        S
-      )
-      pRen = build(
-        FRAG_RENDER,
-        [
-          'uState',
-          'uAspect',
-          'uTime',
-          'uGradScale',
-          'uEta',
-          'uRough',
-          'uWide',
-          'uSheen',
-          'uGloss',
-          'uFrost'
-        ],
-        R
-      )
-      if (!pSim || !pRen) return false
-      gl.bindVertexArray(gl.createVertexArray())
-      gl.activeTexture(gl.TEXTURE0)
-      gl.clearColor(0, 0, 0, 1)
-      setConst(pSim, S, {
-        uK: K_WAVE,
-        uDampV: DECAY,
-        uDampH: DAMP_H,
-        uNu: NU,
-        uRadius: RADIUS,
-        uAmp: AMP,
-        uEdge: 0.055
+    var UB = OK ? locs(pB, ['uA', 'uSim', 'uMaxLod', 'uTurbIso', 'uCurlIso', 'uShift']) : null
+    var UC = OK ? locs(pC, ['uB', 'uSim', 'uMaxLod', 'uConfIso']) : null
+    var UD = OK ? locs(pD, ['uA', 'uP', 'uSim', 'uMaxLod', 'uPoisIso', 'uShift']) : null
+    var UA = OK ? locs(pA, ['uA', 'uB', 'uC', 'uP', 'uSim', 'uMaxLod', 'uSeg', 'uAdvScale', 'uAdvTurb', 'uAdvConf', 'uAdvVel', 'uAdvDiv', 'uVelTurb', 'uVelConf', 'uVelLap', 'uDivMin', 'uDamp', 'uVelScale', 'uForce', 'uRadius', 'uActive', 'uShift']) : null
+    var UE = OK ? locs(pE, ['uA', 'uE', 'uPage', 'uSim', 'uMaxLod', 'uSeg', 'uDye', 'uInk', 'uRadius', 'uActive', 'uPickup', 'uHasPage', 'uFall', 'uBase', 'uObjK', 'uPageY', 'uPageS', 'uShift', 'uONR', 'uORad', 'uOSoft', 'uReflK', 'uReflA', 'uReflH', 'uCanv', 'uORect', 'uOCol']) : null
+    var US = OK ? locs(pS, ['uA', 'uP', 'uSim', 'uMaxLod', 'uBump', 'uTime', 'uOcc', 'uGain', 'uPunch', 'uFrost']) : null
+    var UR = locs(pR, ['uSH', 'uRes', 'uSim', 'uOpacity', 'uThr', 'uSnap', 'uWaveSoft', 'uWaveLod', 'uBright', 'uRim', 'uFrost', 'uEdgeG', 'uMinL', 'uBgL', 'uGlass', 'uLiq', 'uE'])
+    if (OK) {
+      gl.useProgram(pB)
+      gl.uniform1i(UB.uA, 0)
+      gl.uniform1f(UB.uTurbIso, dnum('liquidTurbIso', 0.9))
+      gl.uniform1f(UB.uCurlIso, dnum('liquidCurlIso', 0.6))
+      gl.useProgram(pC)
+      gl.uniform1i(UC.uB, 1)
+      gl.uniform1f(UC.uConfIso, dnum('liquidConfIso', 0.25))
+      gl.useProgram(pD)
+      gl.uniform1i(UD.uA, 0)
+      gl.uniform1i(UD.uP, 3)
+      gl.uniform1f(UD.uPoisIso, dnum('liquidPoisIso', 0.16))
+      gl.useProgram(pA)
+      gl.uniform1i(UA.uA, 0)
+      gl.uniform1i(UA.uB, 1)
+      gl.uniform1i(UA.uC, 2)
+      gl.uniform1i(UA.uP, 3)
+      gl.uniform1f(UA.uAdvScale, dnum('liquidAdvScale', 40))
+      gl.uniform1f(UA.uAdvTurb, dnum('liquidAdvTurb', 1))
+      gl.uniform1f(UA.uAdvConf, dnum('liquidAdvConf', 0.6))
+      gl.uniform1f(UA.uAdvVel, dnum('liquidAdvVel', 0.05))
+      gl.uniform1f(UA.uAdvDiv, dnum('liquidAdvDiv', 0))
+      gl.uniform1f(UA.uVelTurb, dnum('liquidVelTurb', 0))
+      gl.uniform1f(UA.uVelConf, dnum('liquidVelConf', 0))
+      gl.uniform1f(UA.uDivMin, dnum('liquidDivMin', 0.1))
+      gl.uniform1f(UA.uVelScale, dnum('liquidVelScale', 1))
+      gl.uniform1f(UA.uRadius, Math.max(0.005, dnum('liquidRadius', 0.0316)))
+      gl.useProgram(pE)
+      gl.uniform1i(UE.uA, 0)
+      gl.uniform1i(UE.uE, 5)
+      gl.uniform1i(UE.uPage, 6)
+      gl.uniform3fv(UE.uFall, LN)
+      gl.uniform3fv(UE.uBase, tok('--BACKGROUND', '#e0e0e0'))
+      gl.uniform1f(UE.uObjK, Math.max(0, dnum('liquidObjectSense', 9)))
+      gl.uniform1f(UE.uInk, Math.max(0, dnum('liquidInk', 0.3)))
+      gl.uniform1f(UE.uRadius, Math.max(0.005, dnum('liquidRadius', 0.0316)))
+      gl.useProgram(pS)
+      gl.uniform1i(US.uA, 0)
+      gl.uniform1i(US.uP, 3)
+      gl.uniform1f(US.uBump, dnum('glassBump', 3200))
+      gl.uniform1f(US.uOcc, dnum('glassOcclusion', 0.7))
+      gl.uniform1f(US.uFrost, dnum('glassFrost', 0.75))
+      gl.uniform1f(US.uGain, dnum('liquidGain', 6))
+      gl.uniform1f(US.uPunch, dnum('liquidPunch', 2.2))
+    }
+    var WSOFT = Math.max(0.5, dnum('liquidWaveSoft', 30))
+    gl.useProgram(pR)
+    gl.uniform1i(UR.uSH, 4)
+    gl.uniform1i(UR.uE, 5)
+    gl.uniform1f(UR.uOpacity, Math.max(0, Math.min(1, dnum('liquidOpacity', 1))))
+    gl.uniform1f(UR.uBright, Math.max(1, dnum('glassBright', 1)))
+    gl.uniform1f(UR.uEdgeG, Math.max(1, dnum('liquidEdgeGain', 6)))
+    gl.uniform1f(UR.uRim, Math.max(0, Math.min(1, dnum('glassRim', 0.55))))
+    gl.uniform1f(UR.uFrost, Math.max(0, Math.min(1, dnum('glassFrostMix', 0.5))))
+    gl.uniform3fv(UR.uGlass, tok('--FROST', '#dcdcdc'))
+    gl.uniform3fv(UR.uLiq, LN)
+    gl.uniform1f(UR.uMinL, MINL)
+    gl.uniform1f(UR.uBgL, BGL)
+    gl.uniform1f(UR.uThr, Math.max(0.001, dnum('liquidThreshold', 0.045)))
+    gl.uniform1f(UR.uSnap, Math.max(0, Math.min(1, dnum('liquidSnap', 0.05))))
+    gl.uniform1f(UR.uWaveSoft, WSOFT)
+    var FORCE = Math.max(0, dnum('liquidForce', 0.05))
+    var OSOFT = Math.max(0.5, dnum('liquidEdgeSoft', 10))
+    var REFLK = Math.max(0, dnum('liquidReflect', 2))
+    var REFLA = Math.max(0, dnum('liquidReflectAmt', 1.6))
+    var REFLH = Math.max(0, Math.min(1, dnum('liquidReflectHold', 1)))
+    var DOVR = DAMPOVR !== null && Number.isFinite(DAMPOVR) ? DAMPOVR : -1
+    var SPDREF = Math.max(0.05, dnum('liquidSpeedRef', 2))
+    var PICK = Math.max(0, dnum('liquidPickup', 4))
+    var PAGEY = 0, SHIFT = 0, SPREV = 0
+    var SLOCK = /^(1|yes|true|on|page)$/i.test(String(DS.liquidScrollLock || ''))
+    var SC = null
+    function scrollY() {
+      return SC ? SC.getBoundingClientRect().top : -(window.scrollY || 0)
+    }
+    var FMT = /^(1|yes|true|32)$/i.test(String(DS.liquidPrecision || '')) ? gl.RGBA32F : gl.RGBA16F
+    var LINEAR = FMT === gl.RGBA16F || !!gl.getExtension('OES_texture_float_linear')
+    var A0 = null, A1 = null, B = null, C = null, D0 = null, D1 = null, E0 = null, E1 = null, SHT = null
+    var simW = 0, simH = 0, LODS = 0
+    function target(w, h, mip) {
+      var t = gl.createTexture()
+      gl.bindTexture(gl.TEXTURE_2D, t)
+      gl.texStorage2D(gl.TEXTURE_2D, mip ? LODS + 1 : 1, FMT, w, h)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mip ? (LINEAR ? gl.LINEAR_MIPMAP_LINEAR : gl.NEAREST_MIPMAP_NEAREST) : (LINEAR ? gl.LINEAR : gl.NEAREST))
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, LINEAR ? gl.LINEAR : gl.NEAREST)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      var f = gl.createFramebuffer()
+      gl.bindFramebuffer(gl.FRAMEBUFFER, f)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      return { t: t, f: f, mip: !!mip }
+    }
+    function wipe(x) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, x.f)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      if (x.mip) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, x.t); gl.generateMipmap(gl.TEXTURE_2D) }
+    }
+    var DPR = dnum('glassDpr', 1.5)
+    var MAXR = 64
+    var vw = 0, vh = 0, ASP = 1, RPX = 1, RAD = 0
+    var FROSTED = [], FCOL = [], RBUF = new Float32Array(MAXR * 4), RCOL = new Float32Array(MAXR * 3)
+    var pcol = function (v, ia) {
+      var m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/.exec(String(v))
+      if (!m || (!ia && m[4] !== undefined && parseFloat(m[4]) < 0.35)) return null
+      return [m[1], m[2], m[3]].map(function (c) {
+        c = parseFloat(c) / 255
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
       })
-      setConst(pRen, R, {
-        uGradScale: STEEP * SIM_H * 0.25,
-        uEta: 2.5,
-        uRough: 0.35,
-        uWide: 0.75,
-        uFrost: 0.25,
-        uSheen: 0.55,
-        uGloss: 0.5,
+    }
+    function scan() {
+      SC = document.getElementById('smooth-content')
+      FROSTED = [].slice.call(document.querySelectorAll('.GLASS,button,h3'))
+      RAD = parseFloat(getComputedStyle(document.querySelector('.GLASS') || document.body).borderRadius) || 0
+      FCOL = FROSTED.map(function (el) {
+        var cs = getComputedStyle(el)
+        return pcol(cs.backgroundColor) || pcol(cs.boxShadow, 1) || LN
       })
-      A = null
-      B = null
-      simW = 0
-      saOff = false
-      return true
     }
-    if (!initGL()) return
-    var fmtI = F32 ? gl.RG32F : gl.RG16F,
-      fmtF = gl.RG,
-      fmtT = F32 ? gl.FLOAT : gl.HALF_FLOAT
-    var TPAR = [
-      [gl.TEXTURE_MIN_FILTER, gl.LINEAR],
-      [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
-      [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE],
-      [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]
-    ]
-    function makeTarget(w, h) {
-      for (; ;) {
-        var tex = gl.createTexture()
-        gl.bindTexture(gl.TEXTURE_2D, tex)
-        gl.texImage2D(gl.TEXTURE_2D, 0, fmtI, w, h, 0, fmtF, fmtT, null)
-        for (const t of TPAR) gl.texParameteri(gl.TEXTURE_2D, t[0], t[1])
-        var fbo = gl.createFramebuffer()
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
-        gl.framebufferTexture2D(
-          gl.FRAMEBUFFER,
-          gl.COLOR_ATTACHMENT0,
-          gl.TEXTURE_2D,
-          tex,
-          0
-        )
-        if (
-          gl.checkFramebufferStatus(gl.FRAMEBUFFER) ===
-          gl.FRAMEBUFFER_COMPLETE
-        ) {
-          gl.viewport(0, 0, w, h)
-          gl.clear(gl.COLOR_BUFFER_BIT)
-          return { tex: tex, fbo: fbo }
-        }
-        gl.deleteTexture(tex)
-        gl.deleteFramebuffer(fbo)
-        if (fmtF === gl.RGBA) return null
-        fmtI = F32 ? gl.RGBA32F : gl.RGBA16F
-        fmtF = gl.RGBA
+    var RDIRTY = 1, RAGE = 0
+    function rects() {
+      var n = 0, ih = innerHeight
+      for (var i = 0; i < FROSTED.length && n < MAXR; i++) {
+        var b = FROSTED[i].getBoundingClientRect()
+        if (b.width <= 0 || b.height <= 0 || b.bottom < 0 || b.top > ih) continue
+        RBUF[n * 4] = (b.left + b.width * 0.5) * RPX
+        RBUF[n * 4 + 1] = (ih - b.top - b.height * 0.5) * RPX
+        RBUF[n * 4 + 2] = b.width * 0.5 * RPX
+        RBUF[n * 4 + 3] = b.height * 0.5 * RPX
+        RCOL[n * 3] = FCOL[i][0]; RCOL[n * 3 + 1] = FCOL[i][1]; RCOL[n * 3 + 2] = FCOL[i][2]
+        n++
       }
+      return n
     }
-    var A = null,
-      B = null,
-      simW = 0,
-      aspect = 1,
-      dprCap = 2,
-      viewW = 1,
-      viewH = 1
-    var CW = 0,
-      cH = null,
-      cV = null,
-      cL = null
-    function buildCpuField() {
-      var w = Math.max(8, Math.round(CH * aspect))
-      if (w === CW && cH) return
-      CW = w
-      var n = w * CH
-      cH = new Float32Array(n)
-      cV = new Float32Array(n)
-      cL = new Float32Array(n)
-    }
-    function allocTargets(nw) {
-      if (A) {
-        gl.deleteTexture(A.tex)
-        gl.deleteFramebuffer(A.fbo)
-      }
-      if (B) {
-        gl.deleteTexture(B.tex)
-        gl.deleteFramebuffer(B.fbo)
-      }
-      simW = nw
-      A = makeTarget(nw, SIM_H)
-      B = makeTarget(nw, SIM_H)
-      if (A && B) return true
-      simW = 0
-      return false
+    function pushE() {
+      if (!OK) return
+      gl.useProgram(pE)
+      gl.uniform1f(UE.uOSoft, OSOFT)
+      gl.uniform1f(UE.uReflK, REFLK)
+      gl.uniform1f(UE.uReflA, REFLA)
+      gl.uniform1f(UE.uReflH, REFLH)
+      gl.uniform1f(UE.uORad, RAD * RPX)
+      gl.uniform2f(UE.uCanv, vw, vh)
+      gl.uniform1f(UE.uHasPage, HASPAGE)
     }
     function resize() {
-      var vw = innerWidth || document.documentElement.clientWidth || 0
-      var vh = innerHeight || document.documentElement.clientHeight || 0
-      if (vw < 1 || vh < 1) return
-      var dpr = Math.min(devicePixelRatio || 1, dprCap)
-      if (!Number.isFinite(dpr) || dpr < 0.5) dpr = 1
-      viewW = vw
-      viewH = vh
-      canvas.width = Math.max(1, Math.round(vw * dpr))
-      canvas.height = Math.max(1, Math.round(vh * dpr))
-      canvas.style.width = vw + 'px'
-      canvas.style.height = vh + 'px'
-      aspect = vw / vh
-      if (!Number.isFinite(aspect) || aspect <= 0) aspect = 1.75
-      var nw = clamp(Math.round(SIM_H * aspect) || 65, 65, 1535)
-      if (nw !== simW && !allocTargets(nw)) return
-      WARP = DEPTH * (1 - IOR_ETA) * STEEP * (CH - 1) * viewH
-      buildCpuField()
-      gl.useProgram(pSim)
-      gl.uniform2f(S.uAspect, aspect, 1)
-      gl.useProgram(pRen)
-      gl.uniform2f(R.uAspect, aspect, 1)
-      measureShapes()
-      updateShapes(true)
+      var r = RPX = Math.min(devicePixelRatio || 1, DPR)
+      var w = Math.max(1, Math.round(innerWidth * r))
+      var h = Math.max(1, Math.round(innerHeight * r))
+      if (w === vw && h === vh) return
+      vw = canvas.width = w
+      vh = canvas.height = h
+      gl.useProgram(pR)
+      gl.uniform2f(UR.uRes, w, h)
+      if (!OK) return
+      var sh = Math.max(64, Math.min(512, Math.round(h / RES)))
+      var sw = Math.max(2, Math.round(sh * (w / h)))
+      if (sw === simW && sh === simH) return
+      simW = sw
+      simH = sh
+      ASP = sw / sh
+      LODS = Math.floor(Math.log2(Math.max(sw, sh)))
+      for (const x of [A0, A1, B, C, D0, D1, E0, E1, SHT]) if (x) { gl.deleteTexture(x.t); gl.deleteFramebuffer(x.f) }
+      A0 = target(sw, sh, 1)
+      A1 = target(sw, sh, 1)
+      B = target(sw, sh, 1)
+      C = target(sw, sh, 0)
+      D0 = target(sw, sh, 1)
+      D1 = target(sw, sh, 1)
+      E0 = target(sw, sh, 1)
+      E1 = target(sw, sh, 1)
+      SHT = target(sw, sh, 0)
+      var ml = Math.min(SCALES - 1, Math.floor(Math.log2(Math.min(sw, sh))))
+      for (const q of [[pB, UB], [pC, UC], [pD, UD], [pA, UA], [pE, UE], [pS, US]]) {
+        gl.useProgram(q[0])
+        gl.uniform2f(q[1].uSim, sw, sh)
+        gl.uniform1f(q[1].uMaxLod, ml)
+      }
+      gl.useProgram(pR)
+      gl.uniform2f(UR.uSim, sw, sh)
+      gl.uniform1f(UR.uWaveLod, Math.max(0, Math.min(LODS, Math.log2(WSOFT))))
     }
-    function mkAgent() {
-      return {
-        id: null,
-        x: 0.5,
-        y: 0.5,
-        px: 0.5,
-        py: 0.5,
-        down: 0,
-        gain: 0,
-        vx: 0,
-        vy: 0,
-        moved: false,
-        fresh: true
+    var px = -1, py = -1, QUE = []
+    var HOV = Math.max(0, Math.min(1, dnum('liquidHover', 1)))
+    var GC = new WeakMap()
+    function glassy(t) {
+      if (!t || t === document.body) return false
+      var v = GC.get(t)
+      if (v === undefined) {
+        var f = getComputedStyle(t)
+        v = (f.backdropFilter && f.backdropFilter !== 'none') || (f.webkitBackdropFilter && f.webkitBackdropFilter !== 'none') ? true : glassy(t.parentElement)
+        GC.set(t, v)
       }
+      return v
     }
-    var agents = [mkAgent(), mkAgent()]
-    var wheel = { life: 0, ax: 0.5, ay: 0.5, bx: 0.5, by: 0.5, vy: 0 }
-    var ptrX = 0.5,
-      ptrY = 0.5
-    function agentFor(e) {
-      if (e.pointerType === 'mouse') {
-        if (agents[0].id === null) {
-          agents[0].id = 'mouse'
-          agents[0].fresh = true
-        }
-        return agents[0]
+    function seg(x, y) {
+      if (px >= 0) {
+        var dx = (x - px) * ASP, dy = y - py
+        if (dx * dx + dy * dy >= 4e-6 && QUE.length < 256) { QUE.push(px, py, x, y); kick() }
       }
-      for (const a of agents) if (a.id === e.pointerId) return a
-      for (const a of agents)
-        if (a.id === null) {
-          a.id = e.pointerId
-          a.x = a.px = clamp(e.clientX / viewW, 0, 1)
-          a.y = a.py = clamp(1 - e.clientY / viewH, 0, 1)
-          a.fresh = true
-          return a
-        }
-      return null
+      px = x; py = y
     }
-    function onPtr(e, dn) {
-      var a = agentFor(e),
-        x = clamp(e.clientX / viewW, 0, 1),
-        y = clamp(1 - e.clientY / viewH, 0, 1)
-      if (!dn) {
-        ptrX = x
-        ptrY = y
-      }
-      if (!a) return
-      if (e.target?.closest?.('[data-water]')) {
-        a.x = a.px = x
-        a.y = a.py = y
-        a.fresh = true
-        a.moved = false
-        a.down = 0
-        return
-      }
-      a.x = x
-      a.y = y
-      if (a.fresh) {
-        a.px = x
-        a.py = y
-        a.fresh = false
-        a.moved = dn
-      } else a.moved = true
-      if (dn || e.pointerType !== 'mouse') a.down = 1
+    function move(e) {
+      if (HOV < 1 && e.target !== canvas && glassy(e.target)) { px = e.clientX / innerWidth; py = 1 - e.clientY / innerHeight; return }
+      var pts = e.getCoalescedEvents ? e.getCoalescedEvents() : null, i
+      if (pts && pts.length) for (i = 0; i < pts.length; i++) seg(pts[i].clientX / innerWidth, 1 - pts[i].clientY / innerHeight)
+      else seg(e.clientX / innerWidth, 1 - e.clientY / innerHeight)
     }
-    addEventListener(
-      'pointermove',
-      function (e) {
-        onPtr(e, false)
-      },
-      { passive: true }
-    )
-    addEventListener(
-      'pointerdown',
-      function (e) {
-        onPtr(e, true)
-      },
-      { passive: true }
-    )
-    function release(e) {
-      for (const a of agents) {
-        if (
-          a.id !== e.pointerId &&
-          !(e.pointerType === 'mouse' && a.id === 'mouse')
-        )
-          continue
-        a.down = 0
-        if (e.pointerType !== 'mouse') a.id = null
-      }
-    }
-    addEventListener('pointerup', release, { passive: true })
-    addEventListener('pointercancel', release, { passive: true })
-    function markFresh() {
-      for (const a of agents) {
-        a.fresh = true
-        a.down = 0
-        a.gain = 0
-        if (a.id !== 'mouse') a.id = null
-      }
-    }
-    document.addEventListener(
-      'pointerout',
-      function (e) {
-        if (e.pointerType === 'mouse' && !e.relatedTarget) markFresh()
-      },
-      { passive: true }
-    )
-    document.addEventListener('mouseleave', markFresh, { passive: true })
-    addEventListener('blur', markFresh, { passive: true })
-    addEventListener(
-      'wheel',
-      function (e) {
-        var unit = 1
-        if (e.deltaMode === 1) unit = 15
-        else if (e.deltaMode === 2) unit = viewH
-        var d = clamp(e.deltaY * unit * 0.00075, -0.35, 0.35)
-        if (d > -0.0005 && d < 0.0005) return
-        wheel.ax = wheel.bx = ptrX
-        wheel.ay = ptrY + d * 0.5
-        wheel.by = ptrY - d * 0.5
-        wheel.vy = -d * 10.0
-        wheel.life = 1
-      },
-      { passive: true }
-    )
-    function cpuStep(k, dv, dh, nu) {
-      var H = cH,
-        V = cV,
-        L = cL,
-        w = CW,
-        xe = w - 1,
-        ye = CH - 1,
-        y,
-        x,
-        i,
-        a0,
-        a1,
-        a2,
-        b0,
-        b1,
-        b2,
-        c0,
-        c1,
-        c2,
-        lap
-      for (y = 1; y < ye; y++) {
-        i = y * w + 1
-        a0 = H[i - w - 1]
-        a1 = H[i - w]
-        a2 = H[i - w + 1]
-        b0 = H[i - 1]
-        b1 = H[i]
-        b2 = H[i + 1]
-        c0 = H[i + w - 1]
-        c1 = H[i + w]
-        c2 = H[i + w + 1]
-        for (x = 1; ;) {
-          lap =
-            0.5 * (b0 + b2 + a1 + c1) +
-            0.25 * (a0 + a2 + c0 + c2) -
-            3.0 * b1
-          L[i] = lap
-          V[i] = (V[i] + k * lap) * dv
-          if (++x >= xe) break
-          i++
-          a0 = a1
-          a1 = a2
-          a2 = H[i - w + 1]
-          b0 = b1
-          b1 = b2
-          b2 = H[i + 1]
-          c0 = c1
-          c1 = c2
-          c2 = H[i + w + 1]
-        }
-      }
-      for (y = 1; y < ye; y++) {
-        var end = y * w + xe
-        for (i = y * w + 1; i < end; i++)
-          H[i] = (H[i] + V[i] + nu * L[i]) * dh
-      }
-    }
-    function cpuAdvance(dt) {
-      var f = RATE * dt,
-        n = 1,
-        kk = K_WAVE * CPU_REL * f * f
-      if (kk > 0.35) {
-        n = Math.ceil(Math.sqrt(kk / 0.35))
-        f /= n
-      }
-      var k = K_WAVE * CPU_REL * f * f,
-        dv = Math.pow(DECAY, f),
-        dh = Math.pow(DAMP_H, f),
-        nu = NU * CPU_REL * f
-      for (var i = 0; i < n; i++) cpuStep(k, dv, dh, nu)
-    }
-    var SPL = new Float64Array(6)
-    function splat(press, gain, dtsub) {
-      var Rd = CH * RADIUS,
-        H = cH,
-        w = CW,
-        lim = Rd * 3.0
-      var gax = SPL[0] * (w - 1),
-        gay = SPL[1] * (CH - 1),
-        gbx = SPL[2] * (w - 1),
-        gby = SPL[3] * (CH - 1)
-      var x0 = Math.max(1, Math.floor(Math.min(gax, gbx) - lim))
-      var x1 = Math.min(w - 2, Math.ceil(Math.max(gax, gbx) + lim))
-      var y0 = Math.max(1, Math.floor(Math.min(gay, gby) - lim))
-      var y1 = Math.min(CH - 2, Math.ceil(Math.max(gay, gby) + lim))
-      var bax = gbx - gax,
-        bay = gby - gay
-      var ibb = 1 / Math.max(bax * bax + bay * bay, 0.0000001)
-      var spd = Math.min(Math.hypot(SPL[4], SPL[5]), 4.0)
-      var vdx = 0,
-        vdy = 0
-      if (spd > 0.0001) {
-        vdx = SPL[4] / spd
-        vdy = SPL[5] / spd
-      }
-      var ir2 = 1 / (Rd * Rd),
-        iR = 1 / Rd,
-        lim2 = Rd * Rd * 10.0
-      var base = AMP * gain * spd * dtsub,
-        sink = -AMP * 0.025,
-        pk = press > 0 ? press * dtsub * 25.0 : 0
-      for (var y = y0; y <= y1; y++) {
-        var row = y * w,
-          pay = y - gay,
-          pab = pay * bay
-        for (var x = x0; x <= x1; x++) {
-          var pax = x - gax
-          var t = clamp((pax * bax + pab) * ibb, 0, 1)
-          var rx = pax - bax * t,
-            ry = pay - bay * t
-          var d2 = rx * rx + ry * ry
-          if (d2 > lim2) continue
-          var g = Math.exp(-d2 * ir2)
-          var dip = clamp((rx * vdx + ry * vdy) * iR, -2.0, 2.0)
-          var idx = row + x
-          H[idx] += base * g * (-0.25 + 1.35 * dip)
-          if (pk > 0) H[idx] += (sink * g - H[idx]) * Math.min(g * pk, 0.5)
-        }
-      }
-    }
-    var shapes = []
-    function trimSeg(cnt) {
-      var b = -1
-      for (var k = 0; k < 8; k += 2)
-        if (cnt[k] > 1 && (b < 0 || cnt[k] > cnt[b])) b = k
-      if (b < 0) return 0
-      cnt[b]--
-      return -1
-    }
-    function growSeg(seg, cnt) {
-      var b = 0
-      for (var k = 1; k < 8; k++)
-        if (seg[k] / (cnt[k] + 1) > seg[b] / (cnt[b] + 1)) b = k
-      cnt[b]++
-      return 1
-    }
-    function allocPoints(seg, per, n) {
-      var cnt = [0, 0, 0, 0, 0, 0, 0, 0],
-        used = 0,
-        k
-      for (k = 0; k < 8; k++) {
-        cnt[k] = Math.round((seg[k] / per) * n)
-        used += cnt[k]
-      }
-      for (k = 1; k < 8; k += 2) {
-        if (seg[k] <= 0 || cnt[k] >= 5) continue
-        used += 5 - cnt[k]
-        cnt[k] = 5
-      }
-      while (used > n && trimSeg(cnt)) used--
-      while (used < n && growSeg(seg, cnt)) used++
-      return cnt
-    }
-    function arcPoint(s, g, w, c, t) {
-      var rr = g.r[(c + 1) & 3],
-        a = -g.q + c * g.q + t / (rr || 1),
-        ux = Math.cos(a),
-        uy = Math.sin(a)
-      s.bx[w] = g.acx[c] + rr * ux
-      s.by[w] = g.acy[c] + rr * uy
-    }
-    function edgePoint(s, g, w, c, t) {
-      s.bx[w] = g.sbx[c] + g.sdx[c] * t
-      s.by[w] = g.sby[c] + g.sdy[c] * t
-    }
-    function outlineGeom(s) {
-      var ew = s.w,
-        eh = s.h,
-        cap = Math.min(ew, eh) * 0.5,
-        q = Math.PI * 0.5,
-        r = [0, 0, 0, 0],
-        k
-      for (k = 0; k < 4; k++) r[k] = clamp(s.rad[k], 0, cap)
-      var seg = [
-        Math.max(0, ew - r[0] - r[1]),
-        r[1] * q,
-        Math.max(0, eh - r[1] - r[2]),
-        r[2] * q,
-        Math.max(0, ew - r[2] - r[3]),
-        r[3] * q,
-        Math.max(0, eh - r[3] - r[0]),
-        r[0] * q
-      ]
-      var per = 0
-      for (k = 0; k < 8; k++) per += seg[k]
-      return {
-        q: q,
-        r: r,
-        seg: seg,
-        per: per > 0 ? per : 1,
-        acx: [ew - r[1], ew - r[2], r[3], r[0]],
-        acy: [r[1], eh - r[2], eh - r[3], r[0]],
-        sbx: [r[0], ew, ew - r[2], 0],
-        sby: [0, r[1], eh, eh - r[3]],
-        sdx: [1, 0, -1, 0],
-        sdy: [0, 1, 0, -1]
-      }
-    }
-    function buildOutline(s) {
-      var n = s.n
-      s.bx = new Float32Array(n)
-      s.by = new Float32Array(n)
-      var g = outlineGeom(s),
-        cnt = allocPoints(g.seg, g.per, n),
-        w = 0
-      for (var i = 0; i < 8; i++) {
-        var c = i >> 1,
-          m = cnt[i]
-        for (var j = 0; j < m && w < n; j++) {
-          var t = (j / m) * g.seg[i]
-          if (i & 1) arcPoint(s, g, w, c, t)
-          else edgePoint(s, g, w, c, t)
-          w++
-        }
-      }
-      while (w < n) {
-        s.bx[w] = s.bx[w - 1]
-        s.by[w] = s.by[w - 1]
-        w++
-      }
-    }
-    function cornerRadii(cs, w, h) {
-      var out = [0, 0, 0, 0],
-        k = 0
-      for (const key of [
-        'borderTopLeftRadius',
-        'borderTopRightRadius',
-        'borderBottomRightRadius',
-        'borderBottomLeftRadius'
-      ]) {
-        var v = cs[key] || '0',
-          f = Number.parseFloat(v) || 0
-        if (v.includes('%')) f = (f / 100) * Math.min(w, h)
-        out[k++] = f
-      }
-      return out
-    }
-    function measureShapes() {
-      shapes.length = 0
-      for (const el of document.querySelectorAll('[data-water]')) {
-        var r = el.getBoundingClientRect()
-        if (!r.width || !r.height) continue
-        var cs = getComputedStyle(el)
-        var n = Number.parseInt(el.dataset.n, 10) || 60
-        var pad = Math.min(
-          Number.parseFloat(cs.paddingTop) || 0,
-          Number.parseFloat(cs.paddingRight) || 0,
-          Number.parseFloat(cs.paddingBottom) || 0,
-          Number.parseFloat(cs.paddingLeft) || 0
-        )
-        var s = {
-          el: el,
-          n: n,
-          left: r.left,
-          top: r.top,
-          w: r.width,
-          h: r.height,
-          rad: cornerRadii(cs, r.width, r.height),
-          lim: Math.min(pad || 5, Math.min(r.width, r.height) * 0.1),
-          ox: new Float32Array(n),
-          oy: new Float32Array(n),
-          lx: new Float32Array(n),
-          ly: new Float32Array(n),
-          oStr: new Array(n)
-        }
-        buildOutline(s)
-        shapes.push(s)
-      }
-    }
-    function sample(fx, fy) {
-      var x = clamp(fx, 0, CW - 1.005),
-        y = clamp(fy, 0, CH - 1.005)
-      var xi = Math.trunc(x),
-        yi = Math.trunc(y),
-        tx = x - xi,
-        ty = y - yi,
-        i = yi * CW + xi,
-        H = cH
-      var a = H[i],
-        top = a + (H[i + 1] - a) * tx,
-        c = H[i + CW]
-      return top + (c + (H[i + CW + 1] - c) * tx - top) * ty
-    }
-    function warpShape(s) {
-      var n = s.n,
-        ox = s.ox,
-        oy = s.oy,
-        bx = s.bx,
-        by = s.by
-      var sx = (CW - 1) / viewW,
-        sy = (CH - 1) / viewH
-      for (var k = 0; k < n; k++) {
-        var fx = (s.left + bx[k]) * sx,
-          fy = (s.top + by[k]) * sy
-        ox[k] = (sample(fx + 1, fy) - sample(fx - 1, fy)) * 0.5 * WARP
-        oy[k] = (sample(fx, fy + 1) - sample(fx, fy - 1)) * 0.5 * WARP
-      }
-    }
-    function smoothRing(ox, oy, n) {
-      for (var pass = 0; pass < 2; pass++) {
-        var f0 = ox[0],
-          g0 = oy[0],
-          prx = ox[n - 1],
-          pry = oy[n - 1]
-        for (var k = 0; k < n; k++) {
-          var last = k === n - 1,
-            cux = ox[k],
-            cuy = oy[k]
-          ox[k] = 0.25 * prx + 0.5 * cux + 0.25 * (last ? f0 : ox[k + 1])
-          oy[k] = 0.25 * pry + 0.5 * cuy + 0.25 * (last ? g0 : oy[k + 1])
-          prx = cux
-          pry = cuy
-        }
-      }
-    }
-    var MEAN = new Float64Array(2)
-    function limitRing(s) {
-      var n = s.n,
-        ox = s.ox,
-        oy = s.oy,
-        lim = s.lim,
-        k,
-        mx = 0,
-        my = 0,
-        mx2 = 0,
-        my2 = 0
-      for (k = 0; k < n; k++) {
-        mx += ox[k]
-        my += oy[k]
-      }
-      mx /= n
-      my /= n
-      for (k = 0; k < n; k++) {
-        var ax = ox[k] - mx,
-          ay = oy[k] - my,
-          q = lim / Math.hypot(lim, ax, ay)
-        ax *= q
-        ay *= q
-        ox[k] = ax
-        oy[k] = ay
-        mx2 += ax
-        my2 += ay
-      }
-      MEAN[0] = mx2 / n
-      MEAN[1] = my2 / n
-    }
-    function recenter(s, force) {
-      var n = s.n,
-        ox = s.ox,
-        oy = s.oy,
-        lx = s.lx,
-        ly = s.ly,
-        mx2 = MEAN[0],
-        my2 = MEAN[1],
-        dirty = !!force
-      for (var k = 0; k < n; k++) {
-        var wx = ox[k] - mx2,
-          wy = oy[k] - my2
-        ox[k] = wx
-        oy[k] = wy
-        if (dirty) continue
-        var ddx = wx - lx[k],
-          ddy = wy - ly[k]
-        if (ddx * ddx + ddy * ddy > 0.15) dirty = true
-      }
-      return dirty
-    }
-    function px1(v) {
-      return Math.trunc(v * 10 + 0.5) / 10 + 'px'
-    }
-    function emitClip(s) {
-      var n = s.n,
-        ox = s.ox,
-        oy = s.oy,
-        bx = s.bx,
-        by = s.by,
-        lx = s.lx,
-        ly = s.ly
-      var oStr = s.oStr,
-        k
-      for (k = 0; k < n; k++) {
-        var vx = ox[k],
-          vy = oy[k],
-          px = bx[k] + vx,
-          py = by[k] + vy
-        lx[k] = vx
-        ly[k] = vy
-        oStr[k] = px1(px) + ' ' + px1(py)
-      }
-      s.el.style.clipPath = 'polygon(' + oStr.join(',') + ')'
-    }
-    function refreshRects() {
-      for (const s of shapes) {
-        var r = s.el.getBoundingClientRect()
-        s.left = r.left
-        s.top = r.top
-        if (Math.abs(r.width - s.w) < 0.5 && Math.abs(r.height - s.h) < 0.5)
-          continue
-        s.w = r.width
-        s.h = r.height
-        s.rad = cornerRadii(getComputedStyle(s.el), r.width, r.height)
-        buildOutline(s)
-      }
-    }
-    function updateShapes(force) {
-      refreshRects()
-      for (const s of shapes) {
-        warpShape(s)
-        smoothRing(s.ox, s.oy, s.n)
-        limitRing(s)
-        if (recenter(s, force)) emitClip(s)
-      }
-    }
-    var sa = new Float32Array(24),
-      saOff = false
-    var time = 0,
-      last = performance.now(),
-      raf = 0,
-      retry = 0,
-      quiet = 0,
-      slept = false
-    var slowT = 0,
-      fastT = 0,
-      recoverAfter = 10,
-      shapeT = 0,
-      liteDone = false,
-      dprDone = false
-    function ready(now) {
-      if (A && B) return true
-      if (now - retry > 400) {
-        retry = now
-        resize()
-      }
-      if (!A || !B) return false
-      return true
-    }
-    function updateAgents(dt) {
-      var stirred = false
-      for (const a of agents) {
-        if (a.id === null && !a.down) {
-          a.gain = 0
-          continue
-        }
-        var dx = (a.x - a.px) * aspect,
-          dy = a.y - a.py,
-          dist = Math.hypot(dx, dy)
-        if (dist / dt > TELEPORT) {
-          a.px = a.x
-          a.py = a.y
-          a.gain = 0
-          continue
-        }
-        a.vx = dx / dt
-        a.vy = dy / dt
-        a.gain = (a.moved && dist > 0.00001) || a.down ? 1 : 0
-        if (a.gain) stirred = true
-      }
-      return stirred
-    }
-    function packAgents() {
-      var live = wheel.life > 0
-      sa[15] = sa[19] = sa[23] = 0
-      for (var i = 0; i < 2; i++) {
-        var a = agents[i]
-        if (!a.gain) continue
-        live = true
-        var u = 12 + i * 4
-        sa[u] = a.vx
-        sa[u + 1] = a.vy
-        sa[u + 2] = a.down
-        sa[u + 3] = 1
-      }
-      if (wheel.life > 0) {
-        sa[8] = wheel.ax * aspect
-        sa[9] = wheel.ay
-        sa[10] = wheel.bx * aspect
-        sa[11] = wheel.by
-        sa[20] = 0
-        sa[21] = wheel.vy
-        sa[22] = 0
-        sa[23] = wheel.life * 0.75
-      }
-      return live
-    }
-    function packSegments(t0, t1) {
-      for (var i = 0; i < 2; i++) {
-        var a = agents[i]
-        if (!a.gain) continue
-        var u = i * 4
-        sa[u] = (a.px + (a.x - a.px) * t0) * aspect
-        sa[u + 1] = a.py + (a.y - a.py) * t0
-        sa[u + 2] = (a.px + (a.x - a.px) * t1) * aspect
-        sa[u + 3] = a.py + (a.y - a.py) * t1
-      }
-    }
-    function simulate(dt, steps) {
-      var live = packAgents()
-      gl.useProgram(pSim)
-      gl.uniform1f(S.uDT, dt / steps)
-      gl.viewport(0, 0, simW, SIM_H)
-      if (live) saOff = false
-      else if (!saOff) {
-        saOff = true
-        gl.uniform4fv(S.uSA, sa)
-      }
-      for (var st = 0; st < steps; st++) {
-        if (live) {
-          packSegments(st / steps, (st + 1) / steps)
-          gl.uniform4fv(S.uSA, sa)
-        }
-        gl.bindTexture(gl.TEXTURE_2D, A.tex)
-        gl.bindFramebuffer(gl.FRAMEBUFFER, B.fbo)
-        gl.drawArrays(gl.TRIANGLES, 0, 3)
-        var tmp = A
-        A = B
-        B = tmp
-      }
-    }
-    function stirCpu(dt) {
-      for (const a of agents) {
-        if (!a.gain) continue
-        SPL[0] = a.px
-        SPL[1] = 1 - a.py
-        SPL[2] = a.x
-        SPL[3] = 1 - a.y
-        SPL[4] = a.vx
-        SPL[5] = -a.vy
-        splat(a.down, 1, dt)
-      }
-      if (wheel.life > 0) {
-        SPL[0] = wheel.ax
-        SPL[1] = 1 - wheel.ay
-        SPL[2] = wheel.bx
-        SPL[3] = 1 - wheel.by
-        SPL[4] = 0
-        SPL[5] = -wheel.vy
-        splat(0, wheel.life * 0.75, dt)
-      }
-      cpuAdvance(dt)
-    }
-    function sleepAll() {
-      slept = true
-      cH.fill(0)
-      cV.fill(0)
-      cL.fill(0)
-      gl.viewport(0, 0, simW, SIM_H)
-      gl.bindFramebuffer(gl.FRAMEBUFFER, A.fbo)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.bindFramebuffer(gl.FRAMEBUFFER, B.fbo)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      updateShapes(true)
-    }
-    function present() {
-      gl.useProgram(pRen)
-      gl.uniform1f(R.uTime, time)
-      gl.bindTexture(gl.TEXTURE_2D, A.tex)
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas.width, canvas.height)
+    addEventListener('pointermove', move, { passive: true })
+    addEventListener('pointerdown', move, { passive: true })
+    function reset() { px = -1; QUE.length = 0 }
+    addEventListener('pointerup', function (e) { if (e.pointerType !== 'mouse') reset() }, { passive: true })
+    addEventListener('pointercancel', reset, { passive: true })
+    addEventListener('blur', reset, { passive: true })
+    document.addEventListener('mouseleave', reset, { passive: true })
+    function pass(prog, dst) {
+      gl.useProgram(prog)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dst.f)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
+      if (dst.mip) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dst.t); gl.generateMipmap(gl.TEXTURE_2D) }
     }
-    function adapt(dt) {
-      if (1 / dt < 45) {
-        slowT += dt
-        fastT = 0
-      } else {
-        slowT = Math.max(0, slowT - dt * 0.55)
-        fastT += dt
-      }
-      if (slowT > 2.5 && !liteDone) {
-        liteDone = true
-        slowT = 0
-        document.body.classList.add('lite')
-      } else if (slowT > 5 && !dprDone) {
-        dprDone = true
-        slowT = 0
-        dprCap = 1.25
-        resize()
-      } else if (fastT > recoverAfter && (liteDone || dprDone)) {
-        fastT = 0
-        recoverAfter = Math.min(recoverAfter * 2, 320)
-        if (dprDone) {
-          dprDone = false
-          dprCap = 2
-          resize()
-        } else {
-          liteDone = false
-          document.body.classList.remove('lite')
+    function bindAll() {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, A0.t)
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, B.t)
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, C.t)
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, D0.t)
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, E0.t)
+      gl.activeTexture(gl.TEXTURE6); if (RTEX) gl.bindTexture(gl.TEXTURE_2D, RTEX)
+    }
+    var HASPAGE = 0
+    var PAGES = 1, DOCH = 1
+    var RTEX = null, RBUSY = false, RCSS = null, RIMG = new Map()
+    var RS = Math.max(0.1, Math.min(1, dnum('liquidRasterScale', 0.5)))
+    function dataUrl(b) {
+      return new Promise(function (res, rej) {
+        var fr = new FileReader()
+        fr.onload = function () { res(fr.result) }
+        fr.onerror = rej
+        fr.readAsDataURL(b)
+      })
+    }
+    function vpFreeze(css) {
+      var w = innerWidth / 100, h = innerHeight / 100
+      return css.replace(/(-?\d*\.?\d+)(svh|dvh|lvh|svw|dvw|lvw|vmin|vmax|vh|vw)\b/g, function (_, n, u) {
+        var p = u === 'vmin' ? Math.min(w, h) : u === 'vmax' ? Math.max(w, h) : u.slice(-1) === 'w' ? w : h
+        return Math.round(parseFloat(n) * p * 100) / 100 + 'px'
+      })
+    }
+    function rasterCss() {
+      if (RCSS) return Promise.resolve(RCSS)
+      return fetch('/styles.css').then(function (r) { return r.text() }).then(function (css) {
+        var urls = []
+        css.replace(/url\(["']?([^"')]+\.woff2)["']?\)/g, function (_, u) { urls.push(u); return _ })
+        return Promise.all(urls.map(function (u) {
+          return fetch(u).then(function (r) { return r.blob() }).then(dataUrl).then(function (d) { return [u, d] })
+        })).then(function (pairs) {
+          for (const p of pairs) css = css.split(p[0]).join(p[1])
+          RCSS = css
+          return css
+        })
+      })
+    }
+    function rasterImgs(clone) {
+      var imgs = [].slice.call(clone.querySelectorAll('img'))
+      return Promise.all(imgs.map(function (im) {
+        var src = im.getAttribute('src')
+        if (!src) { im.remove(); return null }
+        if (RIMG.has(src)) { im.setAttribute('src', RIMG.get(src)); return null }
+        return fetch(src).then(function (r) { return r.blob() }).then(dataUrl).then(function (d) {
+          RIMG.set(src, d)
+          im.setAttribute('src', d)
+        }).catch(function () { im.remove() })
+      }))
+    }
+    var USEPAGE = !/^(0|no|false|off)$/i.test(String(DS.liquidPageRaster || ''))
+    function buildRaster() {
+      if (RBUSY || !USEPAGE) return
+      RBUSY = true
+      rasterCss().then(vpFreeze).then(function (css) {
+        var sc0 = document.getElementById('smooth-content')
+        var W = innerWidth
+        var H = Math.max(innerHeight, Math.round(sc0 ? sc0.scrollHeight : document.body.scrollHeight))
+        var cap = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096
+        var rs = Math.min(RS, cap / Math.max(W, H))
+        var clone = document.body.cloneNode(true)
+        for (const sel of ['#GL', 'script', 'iframe', 'noscript']) for (const n of clone.querySelectorAll(sel)) n.remove()
+        for (const p of clone.querySelectorAll('picture source')) p.remove()
+        var cw = clone.querySelector('#smooth-wrapper')
+        if (cw) cw.setAttribute('style', 'position:static;height:auto;overflow:visible')
+        var cc = clone.querySelector('#smooth-content')
+        if (cc) cc.setAttribute('style', 'transform:none;will-change:auto')
+        for (const n of clone.querySelectorAll('[style]')) {
+          var st = n.style
+          st.removeProperty('opacity')
+          st.removeProperty('filter')
+          st.removeProperty('visibility')
+          if (n !== cc && n !== cw) st.removeProperty('transform')
         }
+        return rasterImgs(clone).then(function () {
+          var html = new XMLSerializer().serializeToString(clone)
+          var bgHex = HEX(CSSV.getPropertyValue('--BACKGROUND'), '#e0e0e0')
+          var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H +
+            '"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="width:' + W +
+            'px;height:' + H + 'px;background:' + bgHex + '"><style>' + css + '</style>' + html + '</div></foreignObject></svg>'
+          var im = new Image()
+          im.onload = function () {
+            try {
+              var cv = document.createElement('canvas')
+              cv.width = Math.max(1, Math.round(W * rs))
+              cv.height = Math.max(1, Math.round(H * rs))
+              cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height)
+              if (!RTEX) RTEX = gl.createTexture()
+              gl.activeTexture(gl.TEXTURE6)
+              gl.bindTexture(gl.TEXTURE_2D, RTEX)
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, cv)
+              gl.generateMipmap(gl.TEXTURE_2D)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+              DOCH = H
+              HASPAGE = 1
+              pushE()
+            } catch (e) { HASPAGE = 0 }
+            RBUSY = false
+          }
+          im.onerror = function () { RBUSY = false }
+          im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+        })
+      }).catch(function () { RBUSY = false })
+    }
+    var RT = 0
+    function rstate() {
+      var s = ''
+      for (var i = 0; i < FROSTED.length && i < 8; i++) {
+        var b = FROSTED[i].getBoundingClientRect()
+        s += Math.round(b.top) + ',' + Math.round(b.left) + ',' + getComputedStyle(FROSTED[i]).opacity + ';'
       }
+      return s
+    }
+    function rasterSoon() {
+      clearTimeout(RT)
+      var prev = '', same = 0, tries = 0
+      function tick() {
+        var v = document.hidden ? '' : rstate()
+        if (v && v === prev) same++; else { same = 0; prev = v }
+        if (!document.hidden && (same >= 3 || ++tries > 40)) {
+          if (window.requestIdleCallback) requestIdleCallback(buildRaster, { timeout: 3000 })
+          else buildRaster()
+          return
+        }
+        RT = setTimeout(tick, 200)
+      }
+      RT = setTimeout(tick, 200)
+    }
+    var raf = 0, idle = 0, live = false, CLK = 0, NR = 0, prevT = 0
+    var SEG = [0, 0, 0, 0], ACT = 0
+    function stop() {
+      raf = 0
+      prevT = 0
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, vw, vh)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+    function kick() {
+      if (raf) return
+      prevT = 0
+      SPREV = scrollY()
+      RDIRTY = 1
+      raf = requestAnimationFrame(frame)
     }
     function frame(now) {
-      raf = requestAnimationFrame(frame)
-      if (!ready(now)) return
-      var dt = (now - last) / 1000
-      last = now
-      if (dt > 0.5) dt = 1 / 60
-      dt = clamp(dt, 1 / 240, 1 / 20)
-      time += dt
-      var steps = clamp(Math.round(dt * RATE), 1, 10)
-      var stirred = updateAgents(dt) || wheel.life > 0
-      quiet = stirred ? 0 : quiet + dt
-      var asleep = quiet > SLEEP_AFTER
-      if (stirred) slept = false
-      if (!asleep) simulate(dt, steps)
-      wheel.life = Math.max(0, wheel.life - dt * WHEEL_FADE)
-      if (!asleep) {
-        stirCpu(dt)
-        shapeT += dt
-        if (shapeT >= SHAPE_STEP) {
-          shapeT = 0
-          updateShapes(false)
-        }
-      } else if (!slept) sleepAll()
-      for (const a of agents) {
-        a.px = a.x
-        a.py = a.y
-        a.moved = false
+      var DT = prevT ? Math.min(Math.max((now - prevT) / 1000, 1 / 240), 1 / 15) : 1 / FPS
+      prevT = now
+      if (QUE.length) { idle = 0; live = true; CLK += DT }
+      if (!(OK && A0 && live)) return stop()
+      var sy = scrollY()
+      if (sy !== SPREV || --RAGE < 0) { RDIRTY = 1; RAGE = 30 }
+      if (SLOCK) {
+        SHIFT = Math.max(-0.5, Math.min(0.5, (sy - SPREV) / Math.max(innerHeight, 1)))
+        gl.useProgram(pB); gl.uniform1f(UB.uShift, SHIFT)
+        gl.useProgram(pD); gl.uniform1f(UD.uShift, SHIFT)
+        gl.useProgram(pA); gl.uniform1f(UA.uShift, SHIFT)
+        gl.useProgram(pE); gl.uniform1f(UE.uShift, SHIFT)
       }
-      present()
-      adapt(dt)
+      SPREV = sy
+      PAGES = HASPAGE ? Math.min(1, innerHeight / Math.max(DOCH, 1)) : 1
+      PAGEY = HASPAGE ? Math.max(0, Math.min(1 - PAGES, -sy / Math.max(DOCH, 1))) : 0
+      if (RDIRTY) NR = rects()
+      if (idle > QUIET) {
+        for (const x of [A0, A1, B, C, D0, D1, E0, E1, SHT]) wipe(x)
+        live = false
+        return stop()
+      }
+      idle += DT
+      gl.viewport(0, 0, simW, simH)
+      bindAll()
+      pass(pB, B)
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, B.t)
+      pass(pC, C)
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, C.t)
+      pass(pD, D1)
+      var sd = D0; D0 = D1; D1 = sd
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, D0.t)
+      gl.useProgram(pA)
+      var nq = QUE.length >> 2
+      if (nq) {
+        var tot = 0
+        for (var k = 0; k < nq; k++) {
+          var ex = (QUE[k * 4 + 2] - QUE[k * 4]) * ASP, ey = QUE[k * 4 + 3] - QUE[k * 4 + 1]
+          tot += Math.sqrt(ex * ex + ey * ey)
+        }
+        SEG[0] = QUE[0]; SEG[1] = QUE[1]
+        SEG[2] = QUE[nq * 4 - 2]; SEG[3] = QUE[nq * 4 - 1]
+        gl.uniform4f(UA.uSeg, SEG[0], SEG[1], SEG[2], SEG[3])
+        gl.uniform1f(UA.uForce, FORCE * Math.min(tot / DT, SPDREF * 2) / SPDREF)
+        ACT = 1
+      } else ACT = 0
+      gl.uniform1f(UA.uActive, ACT)
+      gl.uniform1f(UA.uVelLap, Math.min(0.15, VLAP * DT * FPS))
+      gl.uniform1f(UA.uDamp, DOVR >= 0 ? DOVR : 1 - Math.exp(-DT / VTAU))
+      pass(pA, A1)
+      var sa = A0; A0 = A1; A1 = sa
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, A0.t)
+      gl.useProgram(pE)
+      gl.uniform1f(UE.uDye, Math.exp(-DT / LIFE))
+      gl.uniform1f(UE.uPickup, 1 - Math.exp(-DT * PICK))
+      gl.uniform1f(UE.uPageY, PAGEY)
+      gl.uniform1f(UE.uPageS, PAGES)
+      gl.uniform1f(UE.uActive, ACT)
+      if (RDIRTY) {
+        RDIRTY = 0
+        gl.uniform1f(UE.uONR, NR)
+        gl.uniform4fv(UE.uORect, RBUF)
+        gl.uniform3fv(UE.uOCol, RCOL)
+      }
+      if (ACT) gl.uniform4f(UE.uSeg, SEG[0], SEG[1], SEG[2], SEG[3])
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, E0.t)
+      pass(pE, E1)
+      var se = E0; E0 = E1; E1 = se
+      gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, E0.t)
+      gl.useProgram(pS)
+      gl.uniform1f(US.uTime, CLK)
+      pass(pS, SHT)
+      QUE.length = 0
+      gl.useProgram(pR)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, vw, vh)
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, SHT.t)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+      raf = requestAnimationFrame(frame)
     }
     canvas.addEventListener('webglcontextlost', function (e) {
       e.preventDefault()
       cancelAnimationFrame(raf)
       raf = 0
-      A = null
-      B = null
     })
-    canvas.addEventListener('webglcontextrestored', function () {
-      if (!initGL()) return
-      resize()
-      if (!A || !B) return
-      last = performance.now()
-      if (!raf) raf = requestAnimationFrame(frame)
-    })
-    var rt = 0
-    function later(ms) {
-      clearTimeout(rt)
-      rt = setTimeout(resize, ms)
-    }
-    addEventListener('resize', function () {
-      later(120)
-    })
-    addEventListener('orientationchange', function () {
-      later(250)
-    })
+    addEventListener('resize', function () { HASPAGE = 0; scan(); resize(); pushE(); RDIRTY = 1; kick(); rasterSoon() })
+    addEventListener('orientationchange', resize)
     document.addEventListener('visibilitychange', function () {
-      markFresh()
       if (document.hidden) {
         cancelAnimationFrame(raf)
         raf = 0
-      } else if (!raf) {
-        last = performance.now()
-        raf = requestAnimationFrame(frame)
-      }
+      } else kick()
     })
+    scan()
     resize()
+    pushE()
+    if (document.readyState === 'complete') rasterSoon()
+    else addEventListener('load', rasterSoon, { once: true })
     raf = requestAnimationFrame(frame)
   })()
   ; (function () {
-    var all = function (r, s) {
-      return Array.prototype.slice.call(r.querySelectorAll(s))
-    }
+    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return
+    var all = function (r, s) { return [...r.querySelectorAll(s)] }
     var TEXT = 'h1, h2, h3, h4, p, cite, button'
     var SLIDES =
       '#HOME section:nth-of-type(1), #HOME section:nth-of-type(2) article, .QUOTE, #OFFERS section, #PROFILE'
     var RANK = { H1: 0, H2: 1, H4: 2, H3: 3, P: 4, CITE: 5, BUTTON: 6 }
     var DUR = 0.95
     var EASE = 'expo.out'
-    var AMT = 0.75
     var BLUR = 10
     var STEP = 0.05
     var SIB = 0.1
+    var LINE = 0.15
     var START = 'top bottom'
-    function isNum(el) {
-      return el.tagName === 'P' && /^\+?\d+$/.test(el.textContent.trim())
+    var soft = matchMedia('(prefers-reduced-motion: reduce)').matches
+    var mob = matchMedia('(max-width: 768px)').matches
+    var RISE = soft ? 10 : 30
+    var LIFT = soft ? 10 : 25
+    var FROM = { opacity: 0, y: LIFT }
+    var TO = { opacity: 1, y: 0, clearProps: 'all' }
+    if (!mob) {
+      FROM.filter = 'blur(' + BLUR + 'px)'
+      TO.filter = 'blur(0px)'
     }
     function words(el) {
       var out = [],
@@ -1194,7 +912,7 @@ fragColor=vec4(col,1.0);
             continue
           }
           var sp = document.createElement('span')
-          sp.className = 'w'
+          sp.className = 'W'
           sp.textContent = part
           f.appendChild(sp)
           out.push(sp)
@@ -1203,18 +921,17 @@ fragColor=vec4(col,1.0);
       }
       return out
     }
-    function chars(el) {
-      var out = []
-      for (const word of all(el, '.w')) {
-        var t = word.textContent
-        word.textContent = ''
-        for (const ch of t) {
-          var c = document.createElement('span')
-          c.className = 'c'
-          c.textContent = ch
-          word.appendChild(c)
-          out.push(c)
+    function lines(ws) {
+      var out = [],
+        top = -1e9,
+        n = -1
+      for (const w of ws) {
+        var r = w.getBoundingClientRect()
+        if (r.top > top + r.height * 0.5) {
+          n++
+          top = r.top
         }
+        out.push(n)
       }
       return out
     }
@@ -1228,30 +945,27 @@ fragColor=vec4(col,1.0);
       }
       return n
     }
+    function trig(el) {
+      return { trigger: el, start: START, once: true }
+    }
     var sets = all(document, TEXT)
       .filter(function (t) {
         return !t.closest('nav')
       })
       .map(function (t) {
-        var n = isNum(t)
-        return { el: t, num: n, w: n ? [] : words(t) }
+        var raw = t.textContent.trim(),
+          s = { el: t, at: (RANK[t.tagName] || 0) * STEP + sib(t) * SIB }
+        if (t.tagName === 'P' && /^\+?\d+$/.test(raw)) {
+          s.pre = raw.charAt(0) === '+' ? '+' : ''
+          s.end = Number.parseInt(raw, 10)
+          s.t = [t]
+          t.textContent = s.pre + '0'
+        } else s.t = words(t)
+        return s
       })
-    if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') return
-    var soft = matchMedia('(prefers-reduced-motion: reduce)').matches
-    var mob = matchMedia('(max-width: 768px)').matches
-    var ACT = 'play none none reverse'
-    var RISE = soft ? 10 : 30
-    var LIFT = soft ? 10 : 25
     sets.forEach(function (s) {
-      s.fine = s.el.tagName === 'H1' || s.el.tagName === 'H2'
-      if (s.num) s.t = [s.el]
-      else if (s.fine) s.t = chars(s.el)
-      else s.t = s.w
-      s.at = (RANK[s.el.tagName] || 0) * STEP + sib(s.el) * SIB
+      gsap.set(s.t, FROM)
     })
-    function trig(el) {
-      return { trigger: el, start: START, toggleActions: ACT }
-    }
     all(document, SLIDES).forEach(function (b) {
       gsap.fromTo(
         b,
@@ -1261,71 +975,72 @@ fragColor=vec4(col,1.0);
           duration: DUR,
           ease: EASE,
           delay: sib(b) * SIB,
+          clearProps: 'all',
           scrollTrigger: trig(b)
         }
       )
     })
-    sets.forEach(function (s) {
-      if (!s.t.length) return
-      if (!mob && s.w.length)
-        gsap.fromTo(
-          s.w,
-          { filter: 'blur(' + BLUR + 'px)' },
-          {
-            filter: 'blur(0px)',
+    var navKids = all(document, 'nav > a, nav > button')
+    if (navKids.length)
+      gsap.fromTo(navKids, FROM, {
+        ...TO,
+        duration: DUR,
+        ease: EASE,
+        delay: 0.15,
+        stagger: 0.1
+      })
+    document.fonts.ready.then(function () {
+      sets.forEach(function (s) {
+        if (!s.t.length) return
+        var tw,
+          ln = lines(s.t),
+          v = {
+            ...TO,
             duration: DUR,
             ease: EASE,
             delay: s.at,
-            stagger: { amount: AMT },
+            stagger: function (i) {
+              return ln[i] * LINE
+            },
             scrollTrigger: trig(s.el)
           }
-        )
-      gsap.fromTo(
-        s.t,
-        { opacity: 0, y: LIFT },
-        {
-          opacity: 1,
-          y: 0,
-          duration: DUR,
-          ease: EASE,
-          delay: s.at,
-          stagger: { amount: AMT },
-          scrollTrigger: trig(s.el)
-        }
-      )
-      if (!s.num) return
-      var raw = s.el.textContent.trim(),
-        pre = raw.charAt(0) === '+' ? '+' : '',
-        end = Number.parseInt(raw.replace(/\D/g, ''), 10),
-        o = { v: 0 }
-      s.el.textContent = pre + '0'
-      gsap.to(o, {
-        v: end,
-        duration: DUR,
-        ease: EASE,
-        delay: s.at,
-        snap: { v: 1 },
-        onUpdate: function () {
-          s.el.textContent = pre + Math.round(o.v)
-        },
-        scrollTrigger: trig(s.el)
+        if (s.end !== undefined)
+          v.onUpdate = function () {
+            if (tw) s.el.textContent = s.pre + Math.round(tw.ratio * s.end)
+          }
+        tw = gsap.fromTo(s.t, FROM, v)
       })
+      ScrollTrigger.refresh()
     })
-    var navKids = all(document, 'nav > a, nav > button')
-    if (navKids.length)
-      gsap.timeline({ delay: 0.15 }).fromTo(
-        navKids,
-        mob
-          ? { opacity: 0, y: LIFT }
-          : { opacity: 0, y: LIFT, filter: 'blur(' + BLUR + 'px)' },
-        {
-          opacity: 1,
-          y: 0,
-          duration: DUR,
-          ease: EASE,
-          stagger: 0.1,
-          ...(mob ? {} : { filter: 'blur(0px)' })
+    var list = document.querySelector('[role="tablist"]')
+    if (list) {
+      var tabs = all(list, '[role="tab"]')
+      var pick = function (t) {
+        for (const o of tabs) {
+          var on = o === t
+          o.setAttribute('aria-selected', on)
+          o.tabIndex = on ? 0 : -1
+          var v = document.getElementById(o.getAttribute('aria-controls'))
+          v.hidden = !on
+          if (!on) continue
+          var f = v.querySelector('iframe[data-src]')
+          if (f) {
+            f.src = f.dataset.src
+            f.removeAttribute('data-src')
+          }
         }
-      )
-    ScrollTrigger.refresh()
+        t.focus()
+        ScrollTrigger.refresh()
+      }
+      list.addEventListener('click', function (e) {
+        var t = e.target.closest('[role="tab"]')
+        if (t) pick(t)
+      })
+      list.addEventListener('keydown', function (e) {
+        var i = tabs.indexOf(document.activeElement)
+        if (i < 0) return
+        if (e.key === 'ArrowRight') pick(tabs[(i + 1) % tabs.length])
+        else if (e.key === 'ArrowLeft') pick(tabs[(i + tabs.length - 1) % tabs.length])
+      })
+    }
   })()
